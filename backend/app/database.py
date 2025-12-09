@@ -148,17 +148,7 @@ def init_db():
                 default_mappings
             )
         
-        # Create indexes for faster searches
-        cursor.execute("CREATE INDEX IF NOT EXISTS idx_products_seller ON products(seller)")
-        cursor.execute("CREATE INDEX IF NOT EXISTS idx_products_category ON products(category)")
-        cursor.execute("CREATE INDEX IF NOT EXISTS idx_products_brand ON products(brand)")
-        cursor.execute("CREATE INDEX IF NOT EXISTS idx_products_title ON products(title)")
-        cursor.execute("CREATE INDEX IF NOT EXISTS idx_products_scraped ON products(scraped_at)")
-        cursor.execute("CREATE INDEX IF NOT EXISTS idx_products_weidian ON products(weidian_url)")
-        cursor.execute("CREATE INDEX IF NOT EXISTS idx_products_taobao ON products(taobao_url)")
-        cursor.execute("CREATE INDEX IF NOT EXISTS idx_products_source ON products(source)")
-        
-        # Migrations for existing databases
+        # Migrations for existing databases - MUST run before creating indexes on new columns
         try:
             cursor.execute("ALTER TABLE products ADD COLUMN source TEXT")
         except sqlite3.OperationalError:
@@ -167,6 +157,16 @@ def init_db():
             cursor.execute("ALTER TABLE products ADD COLUMN url_1688 TEXT")
         except sqlite3.OperationalError:
             pass  # Column already exists
+        
+        # Create indexes for faster searches (after migrations)
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_products_seller ON products(seller)")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_products_category ON products(category)")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_products_brand ON products(brand)")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_products_title ON products(title)")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_products_scraped ON products(scraped_at)")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_products_weidian ON products(weidian_url)")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_products_taobao ON products(taobao_url)")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_products_source ON products(source)")
         
         # Discovered sellers table (from Reddit scraping)
         cursor.execute("""
