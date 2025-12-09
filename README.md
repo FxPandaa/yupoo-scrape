@@ -45,7 +45,7 @@ sudo ./bin/installdependencies.sh
 
 1. Go to your GitHub repo → Settings → Actions → Runners → New self-hosted runner
 2. Copy the token from the configure command
-3. Run on your server:
+3. Run on your server
 
 ```bash
 cd ~/actions-runner
