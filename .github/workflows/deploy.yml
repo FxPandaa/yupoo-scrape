@@ -1,0 +1,70 @@
+name: Deploy Yupoo Search Engine
+
+on:
+  push:
+    branches: [main, master]
+  workflow_dispatch:  # Manual trigger
+
+jobs:
+  deploy:
+    runs-on: self-hosted
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Stop existing containers
+        run: |
+          cd ~/yupoo-search
+          docker compose down || true
+        continue-on-error: true
+
+      - name: Copy files to deployment directory
+        run: |
+          mkdir -p ~/yupoo-search
+          rsync -av --delete \
+            --exclude '.git' \
+            --exclude 'node_modules' \
+            --exclude '__pycache__' \
+            --exclude '.next' \
+            --exclude 'data' \
+            ./ ~/yupoo-search/
+
+      - name: Create data directory
+        run: mkdir -p ~/yupoo-search/data
+
+      - name: Build and start containers
+        run: |
+          cd ~/yupoo-search
+          docker compose build --no-cache
+          docker compose up -d
+
+      - name: Wait for services to start
+        run: sleep 15
+
+      - name: Health check - Typesense
+        run: |
+          curl -f http://localhost:8108/health || exit 1
+          echo "✅ Typesense is healthy"
+
+      - name: Health check - API
+        run: |
+          curl -f http://localhost:8000/ || exit 1
+          echo "✅ API is healthy"
+
+      - name: Health check - Frontend
+        run: |
+          curl -f http://localhost:3000 || exit 1
+          echo "✅ Frontend is healthy"
+
+      - name: Show deployment info
+        run: |
+          echo "=========================================="
+          echo "✅ Deployment successful!"
+          echo "=========================================="
+          echo "Frontend: http://$(hostname -I | awk '{print $1}'):3000"
+          echo "API:      http://$(hostname -I | awk '{print $1}'):8000"
+          echo "Typesense: http://$(hostname -I | awk '{print $1}'):8108"
+          echo ""
+          echo "Total sellers: $(curl -s http://localhost:8000/ | grep -o '"total_sellers":[0-9]*' | cut -d: -f2)"
+          echo "Total products: $(curl -s http://localhost:8000/ | grep -o '"total_products":[0-9]*' | cut -d: -f2)"

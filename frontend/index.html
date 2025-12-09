@@ -1,0 +1,340 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Yupoo Search Engine - FashionReps Trusted Sellers</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        body { font-family: 'Inter', sans-serif; background: #0a0a0a; color: #ededed; }
+        .product-card { transition: transform 0.2s, box-shadow 0.2s; }
+        .product-card:hover { transform: translateY(-4px); box-shadow: 0 10px 40px rgba(0,0,0,0.4); }
+        .image-skeleton { background: linear-gradient(90deg, #1a1a1a 25%, #2a2a2a 50%, #1a1a1a 75%); background-size: 200% 100%; animation: shimmer 1.5s infinite; }
+        @keyframes shimmer { 0% { background-position: -200% 0; } 100% { background-position: 200% 0; } }
+        ::-webkit-scrollbar { width: 8px; } ::-webkit-scrollbar-track { background: #1a1a1a; } ::-webkit-scrollbar-thumb { background: #333; border-radius: 4px; }
+    </style>
+</head>
+<body class="min-h-screen">
+    <div id="app">
+        <!-- Header -->
+        <header class="bg-[#111] border-b border-gray-800 sticky top-0 z-50">
+            <div class="max-w-7xl mx-auto px-4 py-4">
+                <div class="flex items-center justify-between gap-4 flex-wrap">
+                    <div class="flex items-center gap-3">
+                        <svg class="w-8 h-8 text-orange-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4"></path></svg>
+                        <div>
+                            <h1 class="text-xl font-bold text-white">Yupoo Search</h1>
+                            <p id="stats-text" class="text-xs text-gray-500">Loading...</p>
+                        </div>
+                    </div>
+                    
+                    <form id="search-form" class="flex-1 max-w-2xl">
+                        <div class="relative">
+                            <svg class="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"></path></svg>
+                            <input type="text" id="search-input" placeholder="Search products, brands, sellers..." class="w-full pl-12 pr-4 py-3 bg-[#1a1a1a] border border-gray-700 rounded-xl text-white placeholder-gray-500 focus:outline-none focus:border-orange-500">
+                        </div>
+                    </form>
+                    
+                    <div class="flex items-center gap-3">
+                        <button id="filter-btn" class="flex items-center gap-2 px-4 py-2 rounded-lg border border-gray-700 text-gray-300 hover:border-gray-600">
+                            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 4a1 1 0 011-1h16a1 1 0 011 1v2.586a1 1 0 01-.293.707l-6.414 6.414a1 1 0 00-.293.707V17l-4 4v-6.586a1 1 0 00-.293-.707L3.293 7.293A1 1 0 013 6.586V4z"></path></svg>
+                            Filters
+                        </button>
+                        <button id="scrape-btn" class="flex items-center gap-2 px-4 py-2 bg-green-600 hover:bg-green-500 rounded-lg text-white">
+                            <svg id="scrape-icon" class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"></path></svg>
+                            <span id="scrape-text">Scrape All</span>
+                        </button>
+                    </div>
+                </div>
+                
+                <!-- Scraping progress -->
+                <div id="scrape-progress" class="hidden mt-4 bg-[#1a1a1a] rounded-lg p-4">
+                    <div class="flex items-center justify-between mb-2">
+                        <span class="text-sm text-gray-400">Scraping: <span id="current-seller" class="text-white">-</span></span>
+                        <span id="progress-text" class="text-sm text-gray-400">0 / 0 sellers</span>
+                    </div>
+                    <div class="w-full bg-gray-700 rounded-full h-2">
+                        <div id="progress-bar" class="bg-orange-500 h-2 rounded-full transition-all duration-300" style="width: 0%"></div>
+                    </div>
+                    <p id="products-found" class="text-xs text-gray-500 mt-2">0 products found</p>
+                </div>
+            </div>
+        </header>
+
+        <div class="max-w-7xl mx-auto px-4 py-6">
+            <div class="flex gap-6">
+                <!-- Filters sidebar -->
+                <aside id="filters-sidebar" class="hidden w-64 flex-shrink-0">
+                    <div class="bg-[#111] rounded-xl border border-gray-800 p-4 sticky top-24">
+                        <div class="flex items-center justify-between mb-4">
+                            <h2 class="font-semibold text-white">Filters</h2>
+                            <button id="clear-filters" class="text-sm text-orange-500 hover:text-orange-400">Clear all</button>
+                        </div>
+                        
+                        <div class="border-b border-gray-800 pb-4 mb-4">
+                            <label class="block text-sm font-medium text-gray-400 mb-2">Seller</label>
+                            <select id="seller-filter" class="w-full bg-[#1a1a1a] border border-gray-700 rounded-lg px-3 py-2 text-white text-sm">
+                                <option value="">All sellers</option>
+                            </select>
+                        </div>
+                        
+                        <div class="border-b border-gray-800 pb-4 mb-4">
+                            <label class="block text-sm font-medium text-gray-400 mb-2">Category</label>
+                            <select id="category-filter" class="w-full bg-[#1a1a1a] border border-gray-700 rounded-lg px-3 py-2 text-white text-sm">
+                                <option value="">All categories</option>
+                            </select>
+                        </div>
+                        
+                        <div class="border-b border-gray-800 pb-4 mb-4">
+                            <label class="block text-sm font-medium text-gray-400 mb-2">Brand</label>
+                            <select id="brand-filter" class="w-full bg-[#1a1a1a] border border-gray-700 rounded-lg px-3 py-2 text-white text-sm">
+                                <option value="">All brands</option>
+                            </select>
+                        </div>
+                        
+                        <div class="pb-4 mb-4">
+                            <label class="block text-sm font-medium text-gray-400 mb-2">Price (¥)</label>
+                            <div class="flex gap-2">
+                                <input type="number" id="min-price" placeholder="Min" class="w-1/2 bg-[#1a1a1a] border border-gray-700 rounded-lg px-3 py-2 text-white text-sm">
+                                <input type="number" id="max-price" placeholder="Max" class="w-1/2 bg-[#1a1a1a] border border-gray-700 rounded-lg px-3 py-2 text-white text-sm">
+                            </div>
+                        </div>
+                        
+                        <button id="apply-filters" class="w-full bg-orange-500 hover:bg-orange-400 text-white py-2 rounded-lg font-medium">Apply Filters</button>
+                    </div>
+                </aside>
+
+                <!-- Main content -->
+                <main class="flex-1">
+                    <div class="flex items-center justify-between mb-4">
+                        <p id="results-text" class="text-gray-400">Loading...</p>
+                    </div>
+
+                    <!-- Loading -->
+                    <div id="loading" class="flex items-center justify-center py-20">
+                        <svg class="w-8 h-8 text-orange-500 animate-spin" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>
+                    </div>
+
+                    <!-- Products grid -->
+                    <div id="products-grid" class="hidden grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4"></div>
+
+                    <!-- Empty state -->
+                    <div id="empty-state" class="hidden text-center py-20">
+                        <svg class="w-16 h-16 text-gray-600 mx-auto mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4"></path></svg>
+                        <h3 class="text-xl font-semibold text-white mb-2">No products found</h3>
+                        <p class="text-gray-500 mb-4">Try adjusting your search or filters</p>
+                    </div>
+
+                    <!-- Pagination -->
+                    <div id="pagination" class="hidden flex items-center justify-center gap-4 mt-8">
+                        <button id="prev-btn" class="flex items-center gap-2 px-4 py-2 bg-[#1a1a1a] border border-gray-700 rounded-lg text-white disabled:opacity-50">
+                            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7"></path></svg>
+                            Previous
+                        </button>
+                        <span id="page-info" class="text-gray-400">Page 1 of 1</span>
+                        <button id="next-btn" class="flex items-center gap-2 px-4 py-2 bg-[#1a1a1a] border border-gray-700 rounded-lg text-white disabled:opacity-50">
+                            Next
+                            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"></path></svg>
+                        </button>
+                    </div>
+                </main>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const API_BASE = '/api';
+        let currentPage = 1;
+        let totalPages = 1;
+        let isScrapingRunning = false;
+
+        // Elements
+        const searchForm = document.getElementById('search-form');
+        const searchInput = document.getElementById('search-input');
+        const filterBtn = document.getElementById('filter-btn');
+        const filtersSidebar = document.getElementById('filters-sidebar');
+        const scrapeBtn = document.getElementById('scrape-btn');
+        const scrapeProgress = document.getElementById('scrape-progress');
+        const productsGrid = document.getElementById('products-grid');
+        const loading = document.getElementById('loading');
+        const emptyState = document.getElementById('empty-state');
+        const pagination = document.getElementById('pagination');
+
+        // Fetch products
+        async function fetchProducts() {
+            loading.classList.remove('hidden');
+            productsGrid.classList.add('hidden');
+            emptyState.classList.add('hidden');
+
+            const params = new URLSearchParams();
+            if (searchInput.value) params.set('q', searchInput.value);
+            if (document.getElementById('seller-filter').value) params.set('seller', document.getElementById('seller-filter').value);
+            if (document.getElementById('category-filter').value) params.set('category', document.getElementById('category-filter').value);
+            if (document.getElementById('brand-filter').value) params.set('brand', document.getElementById('brand-filter').value);
+            if (document.getElementById('min-price').value) params.set('min_price', document.getElementById('min-price').value);
+            if (document.getElementById('max-price').value) params.set('max_price', document.getElementById('max-price').value);
+            params.set('page', currentPage);
+            params.set('per_page', 48);
+
+            try {
+                const res = await fetch(`${API_BASE}/search?${params}`);
+                const data = await res.json();
+
+                loading.classList.add('hidden');
+
+                if (data.products && data.products.length > 0) {
+                    renderProducts(data.products);
+                    productsGrid.classList.remove('hidden');
+                    totalPages = data.total_pages || 1;
+                    updatePagination(data.total);
+                } else {
+                    emptyState.classList.remove('hidden');
+                }
+
+                // Update facets
+                if (data.facets) {
+                    updateFacets(data.facets);
+                }
+            } catch (err) {
+                console.error('Search error:', err);
+                loading.classList.add('hidden');
+                emptyState.classList.remove('hidden');
+            }
+        }
+
+        // Render products
+        function renderProducts(products) {
+            productsGrid.innerHTML = products.map(p => `
+                <div class="product-card bg-[#111] border border-gray-800 rounded-xl overflow-hidden group">
+                    <div class="relative aspect-square bg-[#1a1a1a]">
+                        ${p.image_url ? `<img src="${p.image_url}" alt="${p.title}" class="w-full h-full object-cover" onerror="this.style.display='none'">` : ''}
+                        ${p.price ? `<div class="absolute top-2 right-2 bg-green-500 text-white px-2 py-0.5 rounded-full text-xs font-medium">¥${p.price}</div>` : ''}
+                        ${p.weidian_url ? `<div class="absolute top-2 left-2 bg-orange-500 text-white px-2 py-0.5 rounded-full text-xs font-medium">Weidian</div>` : ''}
+                        <div class="absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-2">
+                            <a href="${p.url}" target="_blank" class="p-3 bg-white/20 hover:bg-white/30 rounded-full" title="View on Yupoo">
+                                <svg class="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14"></path></svg>
+                            </a>
+                            ${p.weidian_url ? `<a href="${p.weidian_url}" target="_blank" class="p-3 bg-orange-500 hover:bg-orange-400 rounded-full" title="Buy on Weidian"><svg class="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 3h2l.4 2M7 13h10l4-8H5.4M7 13L5.4 5M7 13l-2.293 2.293c-.63.63-.184 1.707.707 1.707H17m0 0a2 2 0 100 4 2 2 0 000-4zm-8 2a2 2 0 11-4 0 2 2 0 014 0z"></path></svg></a>` : ''}
+                        </div>
+                    </div>
+                    <div class="p-3">
+                        <h3 class="text-sm text-white font-medium line-clamp-2 mb-2">${p.title}</h3>
+                        <div class="flex items-center justify-between">
+                            <span class="text-xs text-gray-500">${p.seller}</span>
+                            ${p.brand ? `<span class="text-xs text-blue-400">${p.brand}</span>` : ''}
+                        </div>
+                        ${p.category ? `<span class="inline-block mt-2 text-xs text-purple-400 bg-purple-500/10 px-2 py-0.5 rounded">${p.category}</span>` : ''}
+                    </div>
+                </div>
+            `).join('');
+        }
+
+        // Update facets
+        function updateFacets(facets) {
+            if (facets.seller) {
+                const sel = document.getElementById('seller-filter');
+                const current = sel.value;
+                sel.innerHTML = '<option value="">All sellers</option>' + facets.seller.map(s => `<option value="${s.value}">${s.value} (${s.count})</option>`).join('');
+                sel.value = current;
+            }
+            if (facets.category) {
+                const sel = document.getElementById('category-filter');
+                const current = sel.value;
+                sel.innerHTML = '<option value="">All categories</option>' + facets.category.map(c => `<option value="${c.value}">${c.value}</option>`).join('');
+                sel.value = current;
+            }
+            if (facets.brand) {
+                const sel = document.getElementById('brand-filter');
+                const current = sel.value;
+                sel.innerHTML = '<option value="">All brands</option>' + facets.brand.map(b => `<option value="${b.value}">${b.value}</option>`).join('');
+                sel.value = current;
+            }
+        }
+
+        // Update pagination
+        function updatePagination(total) {
+            document.getElementById('results-text').textContent = `${total.toLocaleString()} products found`;
+            document.getElementById('page-info').textContent = `Page ${currentPage} of ${totalPages}`;
+            document.getElementById('prev-btn').disabled = currentPage === 1;
+            document.getElementById('next-btn').disabled = currentPage === totalPages;
+            pagination.classList.toggle('hidden', totalPages <= 1);
+        }
+
+        // Fetch stats
+        async function fetchStats() {
+            try {
+                const res = await fetch(`${API_BASE}/stats`);
+                const data = await res.json();
+                document.getElementById('stats-text').textContent = `${data.total_products.toLocaleString()} products from ${data.total_sellers} sellers`;
+            } catch (err) {
+                console.error('Stats error:', err);
+            }
+        }
+
+        // Check scrape status
+        async function checkScrapeStatus() {
+            try {
+                const res = await fetch(`${API_BASE}/scrape/status`);
+                const data = await res.json();
+                
+                if (data.is_running) {
+                    isScrapingRunning = true;
+                    scrapeProgress.classList.remove('hidden');
+                    document.getElementById('current-seller').textContent = data.current_seller || '-';
+                    document.getElementById('progress-text').textContent = `${data.progress} / ${data.total_sellers} sellers`;
+                    document.getElementById('progress-bar').style.width = `${(data.progress / data.total_sellers) * 100}%`;
+                    document.getElementById('products-found').textContent = `${data.products_found.toLocaleString()} products found`;
+                    document.getElementById('scrape-text').textContent = 'Scraping...';
+                    document.getElementById('scrape-icon').classList.add('animate-spin');
+                    scrapeBtn.disabled = true;
+                    setTimeout(checkScrapeStatus, 2000);
+                } else {
+                    isScrapingRunning = false;
+                    scrapeProgress.classList.add('hidden');
+                    document.getElementById('scrape-text').textContent = 'Scrape All';
+                    document.getElementById('scrape-icon').classList.remove('animate-spin');
+                    scrapeBtn.disabled = false;
+                    fetchStats();
+                    fetchProducts();
+                }
+            } catch (err) {
+                console.error('Scrape status error:', err);
+            }
+        }
+
+        // Start scraping
+        async function startScraping() {
+            try {
+                await fetch(`${API_BASE}/scrape/start`, { method: 'POST' });
+                checkScrapeStatus();
+            } catch (err) {
+                console.error('Start scrape error:', err);
+            }
+        }
+
+        // Event listeners
+        searchForm.addEventListener('submit', e => { e.preventDefault(); currentPage = 1; fetchProducts(); });
+        filterBtn.addEventListener('click', () => filtersSidebar.classList.toggle('hidden'));
+        scrapeBtn.addEventListener('click', startScraping);
+        document.getElementById('apply-filters').addEventListener('click', () => { currentPage = 1; fetchProducts(); });
+        document.getElementById('clear-filters').addEventListener('click', () => {
+            searchInput.value = '';
+            document.getElementById('seller-filter').value = '';
+            document.getElementById('category-filter').value = '';
+            document.getElementById('brand-filter').value = '';
+            document.getElementById('min-price').value = '';
+            document.getElementById('max-price').value = '';
+            currentPage = 1;
+            fetchProducts();
+        });
+        document.getElementById('prev-btn').addEventListener('click', () => { if (currentPage > 1) { currentPage--; fetchProducts(); } });
+        document.getElementById('next-btn').addEventListener('click', () => { if (currentPage < totalPages) { currentPage++; fetchProducts(); } });
+
+        // Initial load
+        fetchStats();
+        fetchProducts();
+        checkScrapeStatus();
+    </script>
+</body>
+</html>
