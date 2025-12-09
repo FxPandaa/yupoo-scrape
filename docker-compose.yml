@@ -12,11 +12,11 @@ services:
       - TYPESENSE_API_KEY=yupoo-search-key
     command: '--data-dir /data --api-key=yupoo-search-key --enable-cors'
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8108/health"]
+      test: ["CMD-SHELL", "wget -q --spider http://localhost:8108/health || exit 1"]
       interval: 10s
       timeout: 5s
       retries: 10
-      start_period: 30s
+      start_period: 40s
 
   api:
     build: ./backend
