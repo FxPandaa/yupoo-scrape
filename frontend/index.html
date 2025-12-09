@@ -207,10 +207,14 @@
 
         // Render products
         function renderProducts(products) {
-            productsGrid.innerHTML = products.map(p => `
+            productsGrid.innerHTML = products.map(p => {
+                // Use image proxy to bypass Yupoo hotlink protection
+                const proxyUrl = p.image_url ? `${API_BASE}/image?url=${encodeURIComponent(p.image_url)}` : null;
+                
+                return `
                 <div class="product-card bg-[#111] border border-gray-800 rounded-xl overflow-hidden group">
                     <div class="relative aspect-square bg-[#1a1a1a]">
-                        ${p.image_url ? `<img src="${p.image_url}" alt="${p.title}" class="w-full h-full object-cover" onerror="this.onerror=null;this.parentElement.innerHTML='<div class=\\'no-image w-full h-full\\'>📦</div>'+this.parentElement.innerHTML.replace(this.outerHTML,'');">` : '<div class="no-image w-full h-full">📦</div>'}
+                        ${proxyUrl ? `<img src="${proxyUrl}" alt="${p.title}" class="w-full h-full object-cover" loading="lazy" onerror="this.onerror=null;this.parentElement.innerHTML='<div class=\\'no-image w-full h-full\\'>📦</div>';">` : '<div class="no-image w-full h-full">📦</div>'}
                         ${p.price ? `<div class="absolute top-2 right-2 bg-green-500 text-white px-2 py-0.5 rounded-full text-xs font-medium">¥${p.price}</div>` : ''}
                         ${p.weidian_url ? `<div class="absolute top-2 left-2 bg-orange-500 text-white px-2 py-0.5 rounded-full text-xs font-medium">Weidian</div>` : ''}
                         <div class="absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-2">
@@ -229,7 +233,7 @@
                         ${p.category ? `<span class="inline-block mt-2 text-xs text-purple-400 bg-purple-500/10 px-2 py-0.5 rounded">${p.category}</span>` : ''}
                     </div>
                 </div>
-            `).join('');
+            `}).join('');
         }
 
         // Update facets

@@ -4,9 +4,13 @@ FastAPI Backend for Yupoo Scraper Search Engine
 
 from fastapi import FastAPI, Query, BackgroundTasks, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import Response
 from typing import List, Optional
 import asyncio
 import time
+import httpx
+import hashlib
+import os
 
 from .database import init_db, get_total_products, get_recent_scrapes
 from .search import search_typesense, get_stats, init_typesense, index_products
@@ -27,6 +31,10 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# Image cache directory
+IMAGE_CACHE_DIR = "/app/data/image_cache"
+os.makedirs(IMAGE_CACHE_DIR, exist_ok=True)
 
 # Scraping status
 scraping_status = {
@@ -280,6 +288,69 @@ async def reindex_typesense():
         "message": f"Reindexed {indexed} products",
         "total_in_db": len(all_products)
     }
+
+@app.get("/api/image")
+async def proxy_image(url: str = Query(..., description="Image URL to proxy")):
+    """
+    Proxy images from Yupoo to bypass hotlink protection.
+    Caches images locally for faster subsequent loads.
+    """
+    if not url:
+        raise HTTPException(status_code=400, detail="URL required")
+    
+    # Only allow yupoo image URLs for security
+    if not any(domain in url for domain in ['yupoo.com', 'photo.yupoo.com']):
+        raise HTTPException(status_code=400, detail="Only Yupoo URLs allowed")
+    
+    # Create cache key from URL
+    cache_key = hashlib.md5(url.encode()).hexdigest()
+    cache_path = os.path.join(IMAGE_CACHE_DIR, f"{cache_key}.jpg")
+    
+    # Check cache first
+    if os.path.exists(cache_path):
+        with open(cache_path, "rb") as f:
+            return Response(
+                content=f.read(),
+                media_type="image/jpeg",
+                headers={"Cache-Control": "public, max-age=86400"}
+            )
+    
+    # Fetch from Yupoo with proper headers
+    try:
+        async with httpx.AsyncClient() as client:
+            response = await client.get(
+                url,
+                headers={
+                    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+                    "Referer": "https://x.yupoo.com/",
+                    "Accept": "image/webp,image/apng,image/*,*/*;q=0.8",
+                },
+                timeout=10.0,
+                follow_redirects=True
+            )
+            
+            if response.status_code == 200:
+                content = response.content
+                
+                # Cache the image
+                try:
+                    with open(cache_path, "wb") as f:
+                        f.write(content)
+                except:
+                    pass  # Ignore cache errors
+                
+                return Response(
+                    content=content,
+                    media_type=response.headers.get("content-type", "image/jpeg"),
+                    headers={"Cache-Control": "public, max-age=86400"}
+                )
+            else:
+                raise HTTPException(status_code=404, detail="Image not found")
+                
+    except httpx.TimeoutException:
+        raise HTTPException(status_code=504, detail="Image fetch timeout")
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error fetching image: {str(e)}")
 
 if __name__ == "__main__":
     import uvicorn
