@@ -152,6 +152,27 @@ def init_db():
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_products_brand ON products(brand)")
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_products_title ON products(title)")
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_products_scraped ON products(scraped_at)")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_products_weidian ON products(weidian_url)")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_products_taobao ON products(taobao_url)")
+        
+        # Discovered sellers table (from Reddit scraping)
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS discovered_sellers (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                name TEXT NOT NULL,
+                yupoo_user TEXT UNIQUE NOT NULL,
+                yupoo_url TEXT,
+                weidian_id TEXT,
+                taobao_shop TEXT,
+                source TEXT,
+                source_url TEXT,
+                upvotes INTEGER DEFAULT 0,
+                mentioned_brands TEXT,
+                verified INTEGER DEFAULT 0,
+                added_to_main INTEGER DEFAULT 0,
+                discovered_at INTEGER DEFAULT (strftime('%s', 'now'))
+            )
+        """)
         
         conn.commit()
         print("Database initialized successfully")
@@ -423,6 +444,92 @@ def get_total_products() -> int:
         cursor = conn.cursor()
         cursor.execute("SELECT COUNT(*) FROM products")
         return cursor.fetchone()[0]
+
+def get_products_with_links_count() -> int:
+    """Get count of products that have purchase links"""
+    with get_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute("""
+            SELECT COUNT(*) FROM products 
+            WHERE weidian_url IS NOT NULL 
+               OR taobao_url IS NOT NULL 
+               OR purchase_url IS NOT NULL
+        """)
+        return cursor.fetchone()[0]
+
+def save_discovered_seller(seller: Dict[str, Any]) -> bool:
+    """Save a discovered seller from Reddit"""
+    with get_connection() as conn:
+        cursor = conn.cursor()
+        try:
+            cursor.execute("""
+                INSERT OR IGNORE INTO discovered_sellers (
+                    name, yupoo_user, yupoo_url, weidian_id, taobao_shop,
+                    source, source_url, upvotes, mentioned_brands
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """, (
+                seller.get("name"),
+                seller.get("yupoo_user"),
+                seller.get("yupoo_url", f"https://{seller.get('yupoo_user')}.x.yupoo.com/albums"),
+                seller.get("weidian_id"),
+                seller.get("taobao_shop"),
+                seller.get("source"),
+                seller.get("source_url"),
+                seller.get("upvotes", 0),
+                ",".join(seller.get("brands", [])) if seller.get("brands") else None,
+            ))
+            conn.commit()
+            return cursor.rowcount > 0
+        except Exception as e:
+            print(f"Error saving discovered seller: {e}")
+            return False
+
+def get_discovered_sellers(verified_only: bool = False, limit: int = 100) -> List[Dict[str, Any]]:
+    """Get discovered sellers from Reddit"""
+    with get_connection() as conn:
+        cursor = conn.cursor()
+        query = "SELECT * FROM discovered_sellers"
+        if verified_only:
+            query += " WHERE verified = 1"
+        query += " ORDER BY upvotes DESC, discovered_at DESC LIMIT ?"
+        cursor.execute(query, (limit,))
+        return [dict(row) for row in cursor.fetchall()]
+
+def verify_discovered_seller(yupoo_user: str):
+    """Mark a discovered seller as verified (accessible)"""
+    with get_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute(
+            "UPDATE discovered_sellers SET verified = 1 WHERE yupoo_user = ?",
+            (yupoo_user,)
+        )
+        conn.commit()
+
+def get_products_by_purchase_platform(platform: str, limit: int = 100, offset: int = 0) -> List[Dict[str, Any]]:
+    """Get products that have links on a specific platform"""
+    with get_connection() as conn:
+        cursor = conn.cursor()
+        
+        if platform == "weidian":
+            cursor.execute(
+                "SELECT * FROM products WHERE weidian_url IS NOT NULL ORDER BY scraped_at DESC LIMIT ? OFFSET ?",
+                (limit, offset)
+            )
+        elif platform == "taobao":
+            cursor.execute(
+                "SELECT * FROM products WHERE taobao_url IS NOT NULL ORDER BY scraped_at DESC LIMIT ? OFFSET ?",
+                (limit, offset)
+            )
+        elif platform == "any":
+            cursor.execute("""
+                SELECT * FROM products 
+                WHERE weidian_url IS NOT NULL OR taobao_url IS NOT NULL OR purchase_url IS NOT NULL
+                ORDER BY scraped_at DESC LIMIT ? OFFSET ?
+            """, (limit, offset))
+        else:
+            return []
+        
+        return [dict(row) for row in cursor.fetchall()]
 
 # Initialize database on import
 if __name__ == "__main__":

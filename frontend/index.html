@@ -103,7 +103,26 @@
                             </div>
                         </div>
                         
+                        <!-- NEW: Has Purchase Links Filter -->
+                        <div class="border-b border-gray-800 pb-4 mb-4">
+                            <label class="flex items-center gap-2 cursor-pointer">
+                                <input type="checkbox" id="has-links-filter" class="w-4 h-4 rounded bg-[#1a1a1a] border-gray-700 text-orange-500 focus:ring-orange-500">
+                                <span class="text-sm text-gray-400">Only with buy links</span>
+                                <span class="text-xs text-green-500" title="Weidian/Taobao/1688">🛒</span>
+                            </label>
+                            <p class="text-xs text-gray-600 mt-1">Show products with Weidian, Taobao, or 1688 links</p>
+                        </div>
+                        
                         <button id="apply-filters" class="w-full bg-orange-500 hover:bg-orange-400 text-white py-2 rounded-lg font-medium">Apply Filters</button>
+                        
+                        <!-- NEW: Discover Sellers Button -->
+                        <div class="mt-4 pt-4 border-t border-gray-800">
+                            <button id="discover-btn" class="w-full flex items-center justify-center gap-2 bg-purple-600 hover:bg-purple-500 text-white py-2 rounded-lg font-medium text-sm">
+                                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"></path></svg>
+                                Discover New Sellers
+                            </button>
+                            <p class="text-xs text-gray-600 mt-1 text-center">Find sellers from Reddit</p>
+                        </div>
                     </div>
                 </aside>
 
@@ -176,6 +195,7 @@
             if (document.getElementById('brand-filter').value) params.set('brand', document.getElementById('brand-filter').value);
             if (document.getElementById('min-price').value) params.set('min_price', document.getElementById('min-price').value);
             if (document.getElementById('max-price').value) params.set('max_price', document.getElementById('max-price').value);
+            if (document.getElementById('has-links-filter').checked) params.set('has_links', 'true');
             params.set('page', currentPage);
             params.set('per_page', 48);
 
@@ -211,17 +231,35 @@
                 // Use image proxy to bypass Yupoo hotlink protection
                 const proxyUrl = p.image_url ? `${API_BASE}/image?url=${encodeURIComponent(p.image_url)}` : null;
                 
+                // Determine which purchase links are available
+                const hasWeidian = p.weidian_url;
+                const hasTaobao = p.taobao_url;
+                const hasPurchase = p.purchase_url;
+                const hasAnyLink = hasWeidian || hasTaobao || hasPurchase;
+                
+                // Generate badges for purchase links
+                let badges = '';
+                if (hasWeidian) badges += '<div class="absolute top-2 left-2 bg-orange-500 text-white px-2 py-0.5 rounded-full text-xs font-medium">Weidian</div>';
+                else if (hasTaobao) badges += '<div class="absolute top-2 left-2 bg-red-500 text-white px-2 py-0.5 rounded-full text-xs font-medium">Taobao</div>';
+                else if (hasPurchase) badges += '<div class="absolute top-2 left-2 bg-blue-500 text-white px-2 py-0.5 rounded-full text-xs font-medium">Buy Link</div>';
+                
+                // Generate buy buttons for hover overlay
+                let buyButtons = '';
+                if (hasWeidian) buyButtons += `<a href="${p.weidian_url}" target="_blank" class="p-3 bg-orange-500 hover:bg-orange-400 rounded-full" title="Buy on Weidian"><svg class="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 3h2l.4 2M7 13h10l4-8H5.4M7 13L5.4 5M7 13l-2.293 2.293c-.63.63-.184 1.707.707 1.707H17m0 0a2 2 0 100 4 2 2 0 000-4zm-8 2a2 2 0 11-4 0 2 2 0 014 0z"></path></svg></a>`;
+                if (hasTaobao) buyButtons += `<a href="${p.taobao_url}" target="_blank" class="p-3 bg-red-500 hover:bg-red-400 rounded-full" title="Buy on Taobao"><svg class="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 3h2l.4 2M7 13h10l4-8H5.4M7 13L5.4 5M7 13l-2.293 2.293c-.63.63-.184 1.707.707 1.707H17m0 0a2 2 0 100 4 2 2 0 000-4zm-8 2a2 2 0 11-4 0 2 2 0 014 0z"></path></svg></a>`;
+                if (hasPurchase && !hasWeidian && !hasTaobao) buyButtons += `<a href="${p.purchase_url}" target="_blank" class="p-3 bg-blue-500 hover:bg-blue-400 rounded-full" title="Buy Link"><svg class="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 3h2l.4 2M7 13h10l4-8H5.4M7 13L5.4 5M7 13l-2.293 2.293c-.63.63-.184 1.707.707 1.707H17m0 0a2 2 0 100 4 2 2 0 000-4zm-8 2a2 2 0 11-4 0 2 2 0 014 0z"></path></svg></a>`;
+                
                 return `
                 <div class="product-card bg-[#111] border border-gray-800 rounded-xl overflow-hidden group">
                     <div class="relative aspect-square bg-[#1a1a1a]">
                         ${proxyUrl ? `<img src="${proxyUrl}" alt="${p.title}" class="w-full h-full object-cover" loading="lazy" onerror="this.onerror=null;this.parentElement.innerHTML='<div class=\\'no-image w-full h-full\\'>📦</div>';">` : '<div class="no-image w-full h-full">📦</div>'}
                         ${p.price ? `<div class="absolute top-2 right-2 bg-green-500 text-white px-2 py-0.5 rounded-full text-xs font-medium">¥${p.price}</div>` : ''}
-                        ${p.weidian_url ? `<div class="absolute top-2 left-2 bg-orange-500 text-white px-2 py-0.5 rounded-full text-xs font-medium">Weidian</div>` : ''}
+                        ${badges}
                         <div class="absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-2">
                             <a href="${p.url}" target="_blank" class="p-3 bg-white/20 hover:bg-white/30 rounded-full" title="View on Yupoo">
                                 <svg class="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14"></path></svg>
                             </a>
-                            ${p.weidian_url ? `<a href="${p.weidian_url}" target="_blank" class="p-3 bg-orange-500 hover:bg-orange-400 rounded-full" title="Buy on Weidian"><svg class="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 3h2l.4 2M7 13h10l4-8H5.4M7 13L5.4 5M7 13l-2.293 2.293c-.63.63-.184 1.707.707 1.707H17m0 0a2 2 0 100 4 2 2 0 000-4zm-8 2a2 2 0 11-4 0 2 2 0 014 0z"></path></svg></a>` : ''}
+                            ${buyButtons}
                         </div>
                     </div>
                     <div class="p-3">
@@ -331,11 +369,37 @@
             document.getElementById('brand-filter').value = '';
             document.getElementById('min-price').value = '';
             document.getElementById('max-price').value = '';
+            document.getElementById('has-links-filter').checked = false;
             currentPage = 1;
             fetchProducts();
         });
         document.getElementById('prev-btn').addEventListener('click', () => { if (currentPage > 1) { currentPage--; fetchProducts(); } });
         document.getElementById('next-btn').addEventListener('click', () => { if (currentPage < totalPages) { currentPage++; fetchProducts(); } });
+        
+        // Discover sellers from Reddit
+        document.getElementById('discover-btn').addEventListener('click', async () => {
+            const btn = document.getElementById('discover-btn');
+            const originalText = btn.innerHTML;
+            btn.innerHTML = '<svg class="animate-spin w-4 h-4" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg> Searching...';
+            btn.disabled = true;
+            
+            try {
+                const res = await fetch(`${API_BASE}/discover-sellers`, { method: 'POST' });
+                const data = await res.json();
+                
+                if (data.status === 'success') {
+                    alert(`Found ${data.new_sellers} new sellers from Reddit!\n\nTotal discovered: ${data.total_discovered}\nSubreddits: ${data.subreddits.join(', ')}`);
+                } else {
+                    alert('Error discovering sellers: ' + (data.message || 'Unknown error'));
+                }
+            } catch (err) {
+                console.error('Discover error:', err);
+                alert('Failed to discover sellers. Check console for details.');
+            } finally {
+                btn.innerHTML = originalText;
+                btn.disabled = false;
+            }
+        });
 
         // Initial load
         fetchStats();

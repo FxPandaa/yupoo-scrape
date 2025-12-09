@@ -233,6 +233,111 @@ async def fetch_taobao_price(client: httpx.AsyncClient, url: str) -> Optional[fl
     
     return None
 
+# Purchase link patterns for extraction
+PURCHASE_LINK_PATTERNS = {
+    "weidian": [
+        r'https?://(?:www\.)?weidian\.com/item\.html\?itemID=\d+',
+        r'https?://shop\d+\.v\.weidian\.com/item\.html\?itemID=\d+',
+        r'https?://(?:www\.)?weidian\.com/\?userid=\d+',
+    ],
+    "taobao": [
+        r'https?://item\.taobao\.com/item\.htm\?[^"\s]+id=\d+',
+        r'https?://(?:[\w]+\.)?taobao\.com/[^"\s]+',
+        r'https?://(?:www\.)?tmall\.com/[^"\s]+',
+    ],
+    "1688": [
+        r'https?://detail\.1688\.com/offer/\d+\.html',
+        r'https?://(?:www\.)?1688\.com/[^"\s]+',
+    ],
+    "pandabuy": [
+        r'https?://(?:www\.)?pandabuy\.com/product\?[^"\s]+',
+    ],
+    "superbuy": [
+        r'https?://(?:www\.)?superbuy\.com/[^"\s]+',
+    ],
+    "wegobuy": [
+        r'https?://(?:www\.)?wegobuy\.com/[^"\s]+',
+    ],
+    "cssbuy": [
+        r'https?://(?:www\.)?cssbuy\.com/[^"\s]+',
+    ],
+}
+
+def extract_all_purchase_links(html: str) -> Dict[str, str]:
+    """Extract all purchase links from HTML content"""
+    links = {}
+    
+    for platform, patterns in PURCHASE_LINK_PATTERNS.items():
+        for pattern in patterns:
+            match = re.search(pattern, html, re.IGNORECASE)
+            if match and platform not in links:
+                links[platform] = match.group(0)
+                break
+    
+    return links
+
+async def scrape_album_for_links(browser, album_url: str) -> Dict[str, any]:
+    """
+    Scrape a single Yupoo album page to find purchase links
+    Returns dict with weidian_url, taobao_url, price, etc.
+    """
+    result = {
+        "weidian_url": None,
+        "taobao_url": None,
+        "1688_url": None,
+        "agent_url": None,
+        "purchase_price": None,
+        "purchase_platform": None,
+    }
+    
+    try:
+        page = await browser.new_page()
+        await page.goto(album_url, wait_until='networkidle', timeout=20000)
+        await page.wait_for_timeout(1000)
+        
+        html = await page.content()
+        
+        # Extract purchase links
+        links = extract_all_purchase_links(html)
+        
+        if 'weidian' in links:
+            result['weidian_url'] = links['weidian']
+            result['purchase_platform'] = 'weidian'
+        
+        if 'taobao' in links:
+            result['taobao_url'] = links['taobao']
+            if not result['purchase_platform']:
+                result['purchase_platform'] = 'taobao'
+        
+        if '1688' in links:
+            result['1688_url'] = links['1688']
+            if not result['purchase_platform']:
+                result['purchase_platform'] = '1688'
+        
+        # Check for agent links
+        for platform in ['pandabuy', 'superbuy', 'wegobuy', 'cssbuy']:
+            if platform in links:
+                result['agent_url'] = links[platform]
+                break
+        
+        # Try to extract price from page content
+        soup = BeautifulSoup(html, 'html.parser')
+        
+        # Look for price in description or title
+        desc = soup.find('div', class_='showalbum__message')
+        if desc:
+            text = desc.get_text()
+            price = extract_price(text)
+            if price:
+                result['purchase_price'] = price
+        
+        await page.close()
+        
+    except Exception as e:
+        pass  # Silently fail for individual albums
+    
+    return result
+
 # Playwright browser instance (singleton)
 _browser = None
 _playwright = None

@@ -135,6 +135,7 @@ def search_typesense(
     brand: str = None,
     min_price: float = None,
     max_price: float = None,
+    has_links: bool = False,
     page: int = 1,
     per_page: int = 48
 ) -> Dict[str, Any]:
@@ -152,10 +153,10 @@ def search_typesense(
             pass
     
     if use_typesense:
-        return _search_typesense(query, seller, category, brand, min_price, max_price, page, per_page)
+        return _search_typesense(query, seller, category, brand, min_price, max_price, has_links, page, per_page)
     else:
         # Fallback to SQLite
-        return _search_sqlite(query, seller, category, brand, min_price, max_price, page, per_page)
+        return _search_sqlite(query, seller, category, brand, min_price, max_price, has_links, page, per_page)
 
 def _search_typesense(
     query: str = "",
@@ -164,6 +165,7 @@ def _search_typesense(
     brand: str = None,
     min_price: float = None,
     max_price: float = None,
+    has_links: bool = False,
     page: int = 1,
     per_page: int = 48
 ) -> Dict[str, Any]:
@@ -232,6 +234,7 @@ def _search_sqlite(
     brand: str = None,
     min_price: float = None,
     max_price: float = None,
+    has_links: bool = False,
     page: int = 1,
     per_page: int = 48
 ) -> Dict[str, Any]:
@@ -248,6 +251,10 @@ def _search_sqlite(
         limit=per_page,
         offset=offset
     )
+    
+    # Filter for products with links if requested
+    if has_links:
+        products = [p for p in products if p.get('weidian_url') or p.get('taobao_url') or p.get('purchase_url')]
     
     total = get_product_count(query=query, seller=seller, category=category, brand=brand)
     
@@ -270,18 +277,24 @@ def _search_sqlite(
 
 def get_stats() -> Dict[str, Any]:
     """Get search statistics"""
-    from .database import get_total_products
+    from .database import get_total_products, get_products_with_links_count
     
     sellers = get_all_sellers_stats()
     categories = get_all_categories()
     brands = get_all_brands()
     total = get_total_products()
     
+    try:
+        with_links = get_products_with_links_count()
+    except:
+        with_links = 0
+    
     return {
         "total_products": total,
         "total_sellers": len(sellers),
         "total_categories": len(categories),
         "total_brands": len(brands),
+        "products_with_links": with_links,
         "sellers": sellers,
         "categories": categories,
         "brands": brands

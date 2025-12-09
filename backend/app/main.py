@@ -12,7 +12,12 @@ import httpx
 import hashlib
 import os
 
-from .database import init_db, get_total_products, get_recent_scrapes
+from .database import (
+    init_db, get_total_products, get_recent_scrapes, 
+    get_products_with_links_count, save_discovered_seller,
+    get_discovered_sellers, verify_discovered_seller,
+    get_products_by_purchase_platform
+)
 from .search import search_typesense, get_stats, init_typesense, index_products
 from .sellers import SELLERS, get_all_sellers, get_sellers_by_category, get_sellers_by_brand, Seller
 from .scraper import scrape_seller, scrape_multiple_sellers, quick_test_seller
@@ -20,7 +25,7 @@ from .scraper import scrape_seller, scrape_multiple_sellers, quick_test_seller
 app = FastAPI(
     title="Yupoo Search Engine",
     description="Search 200+ FashionReps trusted sellers",
-    version="1.0.0"
+    version="2.0.0"
 )
 
 # CORS for frontend
@@ -45,6 +50,13 @@ scraping_status = {
     "products_found": 0,
     "started_at": None,
     "errors": []
+}
+
+# Reddit discovery status
+discovery_status = {
+    "is_running": False,
+    "discovered_count": 0,
+    "started_at": None,
 }
 
 @app.on_event("startup")
@@ -75,6 +87,7 @@ async def search(
     brand: Optional[str] = Query(None, description="Filter by brand"),
     min_price: Optional[float] = Query(None, description="Minimum price"),
     max_price: Optional[float] = Query(None, description="Maximum price"),
+    has_links: bool = Query(False, description="Only show products with purchase links"),
     page: int = Query(1, ge=1, description="Page number"),
     per_page: int = Query(48, ge=1, le=100, description="Results per page")
 ):
@@ -86,6 +99,7 @@ async def search(
         brand=brand,
         min_price=min_price,
         max_price=max_price,
+        has_links=has_links,
         page=page,
         per_page=per_page
     )
@@ -351,6 +365,136 @@ async def proxy_image(url: str = Query(..., description="Image URL to proxy")):
         raise HTTPException(status_code=504, detail="Image fetch timeout")
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error fetching image: {str(e)}")
+
+# ============== NEW FEATURES ==============
+
+@app.get("/api/products/with-links")
+async def products_with_links(
+    platform: str = Query("any", description="Platform: weidian, taobao, or any"),
+    page: int = Query(1, ge=1),
+    per_page: int = Query(48, ge=1, le=100)
+):
+    """Get products that have purchase links (Weidian/Taobao/1688)"""
+    offset = (page - 1) * per_page
+    products = get_products_by_purchase_platform(platform, per_page, offset)
+    total = get_products_with_links_count()
+    
+    return {
+        "products": products,
+        "total": total,
+        "page": page,
+        "per_page": per_page,
+        "total_pages": (total + per_page - 1) // per_page
+    }
+
+@app.get("/api/stats/extended")
+async def extended_stats():
+    """Get extended statistics including link counts"""
+    basic_stats = get_stats()
+    
+    return {
+        **basic_stats,
+        "products_with_links": get_products_with_links_count(),
+        "discovered_sellers": len(get_discovered_sellers(limit=1000)),
+    }
+
+@app.post("/api/discover/reddit")
+async def discover_from_reddit(background_tasks: BackgroundTasks):
+    """Discover new sellers from Reddit rep communities"""
+    global discovery_status
+    
+    if discovery_status["is_running"]:
+        return {"status": "already_running", "message": "Discovery is already in progress"}
+    
+    discovery_status = {
+        "is_running": True,
+        "discovered_count": 0,
+        "started_at": time.time(),
+    }
+    
+    background_tasks.add_task(run_reddit_discovery)
+    
+    return {
+        "status": "started",
+        "message": "Reddit seller discovery started in background"
+    }
+
+async def run_reddit_discovery():
+    """Background task to discover sellers from Reddit"""
+    global discovery_status
+    
+    try:
+        from .reddit_scraper import discover_new_sellers
+        
+        # Get known sellers
+        known_users = [s.yupoo_user for s in SELLERS]
+        
+        # Discover new sellers
+        new_sellers = await discover_new_sellers(known_users)
+        
+        # Save to database
+        saved_count = 0
+        for seller in new_sellers:
+            if save_discovered_seller(seller):
+                saved_count += 1
+        
+        discovery_status["discovered_count"] = saved_count
+        
+    except Exception as e:
+        print(f"Reddit discovery error: {e}")
+    finally:
+        discovery_status["is_running"] = False
+
+@app.get("/api/discover/status")
+async def discovery_status_endpoint():
+    """Get Reddit discovery status"""
+    return discovery_status
+
+@app.get("/api/discover/sellers")
+async def list_discovered_sellers(
+    verified_only: bool = Query(False),
+    limit: int = Query(100, ge=1, le=500)
+):
+    """List sellers discovered from Reddit"""
+    sellers = get_discovered_sellers(verified_only, limit)
+    return {
+        "sellers": sellers,
+        "total": len(sellers)
+    }
+
+@app.post("/api/discover/verify/{yupoo_user}")
+async def verify_seller(yupoo_user: str):
+    """Verify a discovered seller is accessible"""
+    # Create temp seller object
+    temp_seller = Seller(name=yupoo_user, yupoo_user=yupoo_user)
+    
+    accessible = await quick_test_seller(temp_seller)
+    
+    if accessible:
+        verify_discovered_seller(yupoo_user)
+    
+    return {
+        "yupoo_user": yupoo_user,
+        "verified": accessible
+    }
+
+@app.post("/api/discover/scrape/{yupoo_user}")
+async def scrape_discovered_seller(
+    yupoo_user: str,
+    background_tasks: BackgroundTasks,
+    max_pages: int = Query(20, ge=1, le=50)
+):
+    """Scrape a discovered seller"""
+    # Create temp seller object
+    temp_seller = Seller(name=yupoo_user.title(), yupoo_user=yupoo_user)
+    
+    background_tasks.add_task(scrape_seller, temp_seller, max_pages)
+    
+    return {
+        "status": "started",
+        "seller": yupoo_user,
+        "message": f"Started scraping {yupoo_user}"
+    }
 
 if __name__ == "__main__":
     import uvicorn
