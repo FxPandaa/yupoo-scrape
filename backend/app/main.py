@@ -496,6 +496,115 @@ async def scrape_discovered_seller(
         "message": f"Started scraping {yupoo_user}"
     }
 
+# ============== UNIFIED AUTOMATION SYSTEM ==============
+
+@app.post("/api/automation/start")
+async def start_automation(
+    background_tasks: BackgroundTasks,
+    discover_reddit: bool = Query(True, description="Discover new sellers from Reddit"),
+    scrape_existing: bool = Query(True, description="Scrape existing sellers"),
+    scrape_discovered: bool = Query(True, description="Scrape newly discovered sellers"),
+    check_buy_links: bool = Query(True, description="Check album pages for Weidian/Taobao links"),
+    max_pages: int = Query(20, ge=1, le=50, description="Max pages per seller"),
+):
+    """
+    Start the full automation pipeline:
+    1. Discover new sellers from Reddit
+    2. Scrape existing sellers
+    3. Scrape newly discovered sellers
+    4. Check album pages for buy links
+    """
+    from .automation import automation_state, run_full_automation
+    
+    if automation_state["is_running"]:
+        raise HTTPException(status_code=400, detail="Automation is already running")
+    
+    background_tasks.add_task(
+        run_full_automation,
+        discover_reddit,
+        scrape_existing,
+        scrape_discovered,
+        check_buy_links,
+        max_pages
+    )
+    
+    return {
+        "status": "started",
+        "message": "Full automation started",
+        "options": {
+            "discover_reddit": discover_reddit,
+            "scrape_existing": scrape_existing,
+            "scrape_discovered": scrape_discovered,
+            "check_buy_links": check_buy_links,
+            "max_pages": max_pages,
+        }
+    }
+
+@app.post("/api/automation/stop")
+async def stop_automation():
+    """Stop the automation (sets flag)"""
+    from .automation import automation_state
+    
+    if not automation_state["is_running"]:
+        raise HTTPException(status_code=400, detail="Automation is not running")
+    
+    automation_state["is_running"] = False
+    automation_state["scraping"]["is_running"] = False
+    automation_state["discovery"]["is_running"] = False
+    
+    return {"status": "stopping", "message": "Automation stop requested"}
+
+@app.get("/api/automation/status")
+async def get_automation_status():
+    """Get current automation status with all details"""
+    from .automation import get_automation_status
+    return get_automation_status()
+
+@app.post("/api/automation/discover-only")
+async def discover_only(background_tasks: BackgroundTasks):
+    """Only discover new sellers from Reddit without scraping"""
+    from .automation import automation_state, discover_sellers_from_reddit
+    
+    if automation_state["discovery"]["is_running"]:
+        raise HTTPException(status_code=400, detail="Discovery is already running")
+    
+    background_tasks.add_task(discover_sellers_from_reddit)
+    
+    return {"status": "started", "message": "Reddit discovery started"}
+
+@app.post("/api/automation/scrape-new")
+async def scrape_new_sellers(
+    background_tasks: BackgroundTasks,
+    check_buy_links: bool = Query(True),
+    max_pages: int = Query(20, ge=1, le=50),
+):
+    """Scrape only newly discovered sellers"""
+    from .automation import (
+        automation_state, add_discovered_to_scrape_queue, 
+        scrape_seller_with_links, dynamic_sellers
+    )
+    
+    if automation_state["scraping"]["is_running"]:
+        raise HTTPException(status_code=400, detail="Scraping is already running")
+    
+    async def scrape_new():
+        automation_state["scraping"]["is_running"] = True
+        automation_state["scraping"]["sellers_done"] = 0
+        automation_state["scraping"]["products_found"] = 0
+        
+        new_sellers = await add_discovered_to_scrape_queue()
+        automation_state["scraping"]["total_sellers"] = len(new_sellers)
+        
+        for seller in new_sellers:
+            await scrape_seller_with_links(seller, max_pages, check_buy_links)
+            automation_state["scraping"]["sellers_done"] += 1
+        
+        automation_state["scraping"]["is_running"] = False
+    
+    background_tasks.add_task(scrape_new)
+    
+    return {"status": "started", "message": "Scraping new sellers"}
+
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run(app, host="0.0.0.0", port=8000)
