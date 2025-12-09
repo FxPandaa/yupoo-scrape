@@ -297,13 +297,31 @@ async def scrape_yupoo_page(client: httpx.AsyncClient, url: str, seller_name: st
                     # Try getting from alt or title attribute
                     title = album.get('title', '') or album.get('alt', '') or "Unknown"
                 
-                # Get image
+                # Get image - Yupoo uses multiple lazy-loading attributes
                 img = album.find('img')
                 image_url = None
                 if img:
-                    image_url = img.get('data-src') or img.get('src') or img.get('data-original')
-                    if image_url and not image_url.startswith('http'):
-                        image_url = 'https:' + image_url if image_url.startswith('//') else urljoin(url, image_url)
+                    # Try various Yupoo image attributes (priority order)
+                    image_url = (
+                        img.get('data-origin-src') or  # High-res original
+                        img.get('data-src') or         # Lazy load src
+                        img.get('data-original') or    # Alternative lazy load
+                        img.get('src')                 # Fallback to regular src
+                    )
+                    
+                    # Fix relative URLs
+                    if image_url:
+                        if image_url.startswith('//'):
+                            image_url = 'https:' + image_url
+                        elif not image_url.startswith('http'):
+                            image_url = urljoin(url, image_url)
+                        
+                        # Replace thumbnail size with larger size for better quality
+                        # Yupoo uses _240x240 or similar for thumbnails
+                        if '_240x240' in image_url:
+                            image_url = image_url.replace('_240x240', '_800x0x1')
+                        elif '_160x160' in image_url:
+                            image_url = image_url.replace('_160x160', '_800x0x1')
                 
                 # Extract price from title
                 price = extract_price(title)
