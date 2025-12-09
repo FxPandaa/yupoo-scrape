@@ -39,23 +39,50 @@ jobs:
           docker compose build --no-cache
           docker compose up -d
 
-      - name: Wait for services to start
-        run: sleep 15
-
-      - name: Health check - Typesense
+      - name: Wait for services to be healthy
         run: |
-          curl -f http://localhost:8108/health || exit 1
-          echo "✅ Typesense is healthy"
+          echo "Waiting for Typesense to be healthy..."
+          for i in {1..30}; do
+            if curl -sf http://localhost:8108/health > /dev/null 2>&1; then
+              echo "✅ Typesense is healthy after $i attempts"
+              exit 0
+            fi
+            echo "Attempt $i/30 - Typesense not ready yet, waiting 5s..."
+            sleep 5
+          done
+          echo "❌ Typesense failed to become healthy"
+          docker logs yupoo-typesense
+          exit 1
 
       - name: Health check - API
         run: |
-          curl -f http://localhost:8000/ || exit 1
-          echo "✅ API is healthy"
+          echo "Waiting for API to be healthy..."
+          for i in {1..20}; do
+            if curl -sf http://localhost:8000/ > /dev/null 2>&1; then
+              echo "✅ API is healthy after $i attempts"
+              exit 0
+            fi
+            echo "Attempt $i/20 - API not ready yet, waiting 3s..."
+            sleep 3
+          done
+          echo "❌ API failed to become healthy"
+          docker logs yupoo-api
+          exit 1
 
       - name: Health check - Frontend
         run: |
-          curl -f http://localhost:3000 || exit 1
-          echo "✅ Frontend is healthy"
+          echo "Waiting for Frontend to be healthy..."
+          for i in {1..20}; do
+            if curl -sf http://localhost:3000 > /dev/null 2>&1; then
+              echo "✅ Frontend is healthy after $i attempts"
+              exit 0
+            fi
+            echo "Attempt $i/20 - Frontend not ready yet, waiting 3s..."
+            sleep 3
+          done
+          echo "❌ Frontend failed to become healthy"
+          docker logs yupoo-frontend
+          exit 1
 
       - name: Show deployment info
         run: |
