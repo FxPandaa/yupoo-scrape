@@ -11,12 +11,6 @@ services:
       - TYPESENSE_DATA_DIR=/data
       - TYPESENSE_API_KEY=yupoo-search-key
     command: '--data-dir /data --api-key=yupoo-search-key --enable-cors'
-    healthcheck:
-      test: ["CMD-SHELL", "wget -q --spider http://localhost:8108/health || exit 1"]
-      interval: 10s
-      timeout: 5s
-      retries: 10
-      start_period: 40s
 
   api:
     build: ./backend
@@ -32,8 +26,7 @@ services:
       - TYPESENSE_PORT=8108
       - TYPESENSE_API_KEY=yupoo-search-key
     depends_on:
-      typesense:
-        condition: service_healthy
+      - typesense
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8000/"]
       interval: 30s
@@ -49,8 +42,7 @@ services:
     environment:
       - NODE_ENV=production
     depends_on:
-      api:
-        condition: service_started
+      - api
 
 volumes:
   typesense-data:
