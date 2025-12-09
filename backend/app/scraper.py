@@ -233,163 +233,147 @@ async def fetch_taobao_price(client: httpx.AsyncClient, url: str) -> Optional[fl
     
     return None
 
-async def scrape_yupoo_page(client: httpx.AsyncClient, url: str, seller_name: str) -> Tuple[List[Dict], Optional[str]]:
+# Playwright browser instance (singleton)
+_browser = None
+_playwright = None
+
+async def get_browser():
+    """Get or create Playwright browser instance"""
+    global _browser, _playwright
+    if _browser is None:
+        from playwright.async_api import async_playwright
+        _playwright = await async_playwright().start()
+        _browser = await _playwright.chromium.launch(
+            headless=True,
+            args=['--no-sandbox', '--disable-dev-shm-usage']
+        )
+    return _browser
+
+async def close_browser():
+    """Close Playwright browser and cleanup resources"""
+    global _browser, _playwright
+    if _browser:
+        await _browser.close()
+        _browser = None
+    if _playwright:
+        await _playwright.stop()
+        _playwright = None
+
+async def scrape_yupoo_page_playwright(url: str, seller_name: str) -> Tuple[List[Dict], Optional[str]]:
     """
-    Scrape a single Yupoo page for products
+    Scrape a Yupoo page using Playwright (JavaScript rendering)
     Returns: (products list, next page URL or None)
     """
     products = []
     next_page = None
     
     try:
-        response = await client.get(url, headers=HEADERS, timeout=30.0)
+        browser = await get_browser()
+        page = await browser.new_page()
         
-        if response.status_code == 404:
-            print(f"  Page not found: {url}")
-            return [], None
+        # Set viewport and user agent
+        await page.set_viewport_size({"width": 1920, "height": 1080})
         
-        if response.status_code != 200:
-            print(f"  HTTP {response.status_code} for {url}")
-            return [], None
+        print(f"    Loading page with Playwright...")
+        await page.goto(url, wait_until='networkidle', timeout=30000)
         
-        html = response.text
+        # Wait for albums to load
+        await page.wait_for_timeout(2000)
+        
+        # Get page content after JavaScript execution
+        html = await page.content()
         soup = BeautifulSoup(html, 'html.parser')
         
-        # DEBUG: Print page structure
-        print(f"    Page length: {len(html)} chars")
+        print(f"    Page length: {len(html)} chars (after JS)")
         
-        # Method 1: Find all album links with album__main class
-        albums = soup.find_all('a', class_='album__main')
+        # Find all album items - Yupoo uses showindex__children container
+        albums = []
         
-        # Method 2: Find showindex__children container
-        if not albums:
-            container = soup.find('div', class_='showindex__children')
-            if container:
+        # Method 1: Find showindex__children and get album items
+        container = soup.find('div', class_='showindex__children')
+        if container:
+            albums = container.find_all('a', class_='album__main')
+            if not albums:
                 albums = container.find_all('a', href=True)
         
-        # Method 3: Find categories__children container  
+        # Method 2: Find categories page structure
         if not albums:
             container = soup.find('div', class_='categories__children')
             if container:
                 albums = container.find_all('a', href=True)
         
-        # Method 4: Find any links to albums
+        # Method 3: Find by class pattern
+        if not albums:
+            albums = soup.find_all('a', class_='album__main')
+        
+        # Method 4: Find any album links
         if not albums:
             albums = soup.find_all('a', href=re.compile(r'/albums/\d+'))
-        
-        # Method 5: Find album items by class patterns
-        if not albums:
-            albums = soup.find_all(['a', 'div'], class_=re.compile(r'album|showindex__item|categories__item'))
         
         print(f"    Found {len(albums)} album elements")
         
         for album in albums:
             try:
-                # Get URL - handle both <a> tags and containers with <a> inside
-                href = None
-                if album.name == 'a':
-                    href = album.get('href', '')
-                else:
-                    link = album.find('a', href=True)
-                    if link:
-                        href = link.get('href', '')
-                
+                href = album.get('href', '')
                 if not href or '/albums/' not in href:
                     continue
                 
                 full_url = urljoin(url, href)
                 
-                # Get title from multiple sources
-                title = None
+                # Get title
+                title_elem = album.find(class_='album__title')
+                title = title_elem.get_text(strip=True) if title_elem else None
                 
-                # Try specific Yupoo title classes
-                for title_class in ['album__title', 'showindex__title', 'text', 'title']:
-                    title_elem = album.find(class_=title_class)
-                    if title_elem:
-                        title = title_elem.get_text(strip=True)
-                        break
-                
-                # Try span with text
                 if not title:
-                    span = album.find('span')
-                    if span:
-                        title = span.get_text(strip=True)
-                
-                # Try title/alt attributes
-                if not title:
-                    title = album.get('title', '') or album.get('alt', '')
-                
-                # Try img alt
-                if not title:
-                    img = album.find('img')
-                    if img:
-                        title = img.get('alt', '') or img.get('title', '')
+                    # Try to get from all text in album
+                    title = album.get_text(strip=True)
+                    # Clean up - remove image count prefix like "11 "
+                    title = re.sub(r'^\d+\s+', '', title)
                 
                 if not title:
                     title = "Unknown"
                 
-                # Get image URL - check all possible attributes
+                # Get image URL - Yupoo loads images with data-src or data-origin-src
                 image_url = None
                 img = album.find('img')
                 
                 if img:
-                    # Yupoo image attributes in priority order
-                    for attr in ['data-origin-src', 'data-src', 'data-original', 'data-lazy', 'src']:
-                        image_url = img.get(attr)
-                        if image_url and image_url != '' and 'data:image' not in image_url:
+                    # Priority order for Yupoo images
+                    for attr in ['data-origin-src', 'data-src', 'src']:
+                        val = img.get(attr)
+                        if val and not val.startswith('data:'):
+                            image_url = val
                             break
-                    
-                    # Also check style attribute for background image
-                    if not image_url:
-                        style = img.get('style', '')
-                        bg_match = re.search(r'url\(["\']?([^"\']+)["\']?\)', style)
+                
+                # Check for background-image style
+                if not image_url:
+                    # Check album__cover div
+                    cover = album.find('div', class_='album__cover')
+                    if cover:
+                        style = cover.get('style', '')
+                        bg_match = re.search(r'url\(["\']?([^"\')\s]+)["\']?\)', style)
                         if bg_match:
                             image_url = bg_match.group(1)
                 
-                # Check for background-image in album element itself
-                if not image_url:
-                    style = album.get('style', '')
-                    bg_match = re.search(r'url\(["\']?([^"\']+)["\']?\)', style)
-                    if bg_match:
-                        image_url = bg_match.group(1)
-                
-                # Check for image in nested div
-                if not image_url:
-                    img_div = album.find('div', class_=re.compile(r'image|thumb|cover|photo'))
-                    if img_div:
-                        nested_img = img_div.find('img')
-                        if nested_img:
-                            for attr in ['data-origin-src', 'data-src', 'src']:
-                                image_url = nested_img.get(attr)
-                                if image_url:
-                                    break
-                
-                # Fix URL format
+                # Fix URL
                 if image_url:
                     if image_url.startswith('//'):
                         image_url = 'https:' + image_url
                     elif not image_url.startswith('http'):
                         image_url = urljoin(url, image_url)
-                    
-                    # Upgrade thumbnail to larger size
+                    # Get larger image
                     image_url = re.sub(r'_\d+x\d+', '_800x0x1', image_url)
                 
-                # Extract price from title
+                # Extract info from title
                 price = extract_price(title)
-                
-                # Detect brand
                 brand = detect_brand(title)
-                
-                # Detect category
                 category = detect_category(title)
-                
-                # Generate product ID
                 product_id = generate_product_id(seller_name, full_url)
                 
                 product = {
                     "id": product_id,
                     "seller": seller_name,
-                    "title": title,
+                    "title": title[:200] if title else "Unknown",
                     "url": full_url,
                     "image_url": image_url,
                     "price": price,
@@ -400,9 +384,8 @@ async def scrape_yupoo_page(client: httpx.AsyncClient, url: str, seller_name: st
                     "scraped_at": int(time.time())
                 }
                 
-                # Log first few products for debugging
                 if len(products) < 3:
-                    print(f"      Product: {title[:50]}... | Image: {image_url[:50] if image_url else 'None'}...")
+                    print(f"      Product: {title[:40]}... | Image: {'Yes' if image_url else 'No'}")
                 
                 products.append(product)
                 
@@ -411,14 +394,11 @@ async def scrape_yupoo_page(client: httpx.AsyncClient, url: str, seller_name: st
                 continue
         
         # Find next page
-        pagination = soup.find('div', class_='pagination') or soup.find('ul', class_='pagination')
-        if pagination:
-            next_link = pagination.find('a', class_='next') or pagination.find('a', text=re.compile(r'Next|下一页|»'))
-            if next_link and next_link.get('href'):
-                next_page = urljoin(url, next_link['href'])
-        
-        # Alternative pagination check
-        if not next_page:
+        next_link = soup.find('a', class_='pager__next')
+        if next_link and next_link.get('href'):
+            next_page = urljoin(url, next_link['href'])
+        else:
+            # Check for pagination numbers
             page_links = soup.find_all('a', href=re.compile(r'page=\d+'))
             if page_links:
                 current_page = 1
@@ -433,14 +413,26 @@ async def scrape_yupoo_page(client: httpx.AsyncClient, url: str, seller_name: st
                         next_page = urljoin(url, href)
                         break
         
+        await page.close()
+        
     except Exception as e:
         print(f"  Error scraping page: {e}")
+        import traceback
+        traceback.print_exc()
     
     return products, next_page
 
+async def scrape_yupoo_page(url: str, seller_name: str) -> Tuple[List[Dict], Optional[str]]:
+    """
+    Scrape a single Yupoo page for products using Playwright
+    Returns: (products list, next page URL or None)
+    """
+    # Use Playwright version for proper JS rendering
+    return await scrape_yupoo_page_playwright(url, seller_name)
+
 async def scrape_seller(seller: Seller, max_pages: int = 50) -> int:
     """
-    Scrape all products from a seller
+    Scrape all products from a seller using Playwright for JS rendering
     Returns: number of products found
     """
     print(f"\n{'='*60}")
@@ -455,12 +447,17 @@ async def scrape_seller(seller: Seller, max_pages: int = 50) -> int:
     base_url = get_seller_yupoo_url(seller)
     current_url = base_url
     
-    async with httpx.AsyncClient() as client:
+    # Get shared Playwright browser
+    browser = await get_browser()
+    page = await browser.new_page()
+    
+    try:
         while current_url and pages_scraped < max_pages:
             pages_scraped += 1
             print(f"  Page {pages_scraped}: {current_url}")
             
-            products, next_page = await scrape_yupoo_page(client, current_url, seller.name)
+            # Use Playwright to scrape (handles JavaScript rendering)
+            products, next_page = await scrape_yupoo_page(current_url, seller.name)
             
             if products:
                 print(f"    Found {len(products)} products")
@@ -473,8 +470,8 @@ async def scrape_seller(seller: Seller, max_pages: int = 50) -> int:
             
             current_url = next_page
             
-            # Minimal rate limiting for speed
-            await asyncio.sleep(0.1)
+            # Small delay between pages
+            await asyncio.sleep(0.5)
         
         # Try to fetch Weidian/Taobao prices for some products
         if all_products and seller.weidian_id:
@@ -485,6 +482,8 @@ async def scrape_seller(seller: Seller, max_pages: int = 50) -> int:
             for product in all_products:
                 product['weidian_url'] = weidian_base
                 product['purchase_platform'] = 'weidian'
+    finally:
+        await page.close()
     
     # Save products to database
     if all_products:
@@ -529,25 +528,15 @@ async def scrape_multiple_sellers(sellers: List[Seller], max_pages_per_seller: i
 async def quick_test_seller(seller: Seller) -> bool:
     """
     Quick test if a seller's Yupoo page is accessible
-    Returns True if accessible and has products
+    Returns True if accessible (basic HTTP check, no JS rendering needed)
     """
     url = get_seller_yupoo_url(seller)
     
     async with httpx.AsyncClient() as client:
         try:
             response = await client.get(url, headers=HEADERS, timeout=10.0)
-            
-            if response.status_code == 200:
-                soup = BeautifulSoup(response.text, 'html.parser')
-                
-                # Check for albums
-                has_albums = (
-                    soup.find('div', class_='showindex__children') or
-                    soup.find('a', class_='album__main') or
-                    soup.find('a', href=re.compile(r'/albums/\d+'))
-                )
-                
-                return bool(has_albums)
+            # Just check if page loads - 200 status is enough
+            return response.status_code == 200
             
         except Exception:
             pass
@@ -555,9 +544,18 @@ async def quick_test_seller(seller: Seller) -> bool:
     return False
 
 # Main scraping function for external use
+async def _run_scraper_async(sellers: List[Seller], max_pages: int = 50) -> Dict[str, int]:
+    """Run scraper with proper browser cleanup"""
+    try:
+        results = await scrape_multiple_sellers(sellers, max_pages)
+        return results
+    finally:
+        # Always close browser when done
+        await close_browser()
+
 def run_scraper(sellers: List[Seller], max_pages: int = 50) -> Dict[str, int]:
     """Run the scraper (sync wrapper for async function)"""
-    return asyncio.run(scrape_multiple_sellers(sellers, max_pages))
+    return asyncio.run(_run_scraper_async(sellers, max_pages))
 
 def test_single_seller(seller: Seller) -> bool:
     """Test a single seller (sync wrapper)"""
