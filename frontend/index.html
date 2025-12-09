@@ -4,6 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Yupoo Search Engine - FashionReps Trusted Sellers</title>
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>📦</text></svg>">
     <script src="https://cdn.tailwindcss.com"></script>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
     <style>
@@ -13,6 +14,7 @@
         .image-skeleton { background: linear-gradient(90deg, #1a1a1a 25%, #2a2a2a 50%, #1a1a1a 75%); background-size: 200% 100%; animation: shimmer 1.5s infinite; }
         @keyframes shimmer { 0% { background-position: -200% 0; } 100% { background-position: 200% 0; } }
         ::-webkit-scrollbar { width: 8px; } ::-webkit-scrollbar-track { background: #1a1a1a; } ::-webkit-scrollbar-thumb { background: #333; border-radius: 4px; }
+        .no-image { display: flex; align-items: center; justify-content: center; color: #555; font-size: 3rem; }
     </style>
 </head>
 <body class="min-h-screen">
@@ -208,7 +210,7 @@
             productsGrid.innerHTML = products.map(p => `
                 <div class="product-card bg-[#111] border border-gray-800 rounded-xl overflow-hidden group">
                     <div class="relative aspect-square bg-[#1a1a1a]">
-                        ${p.image_url ? `<img src="${p.image_url}" alt="${p.title}" class="w-full h-full object-cover" onerror="this.style.display='none'">` : ''}
+                        ${p.image_url ? `<img src="${p.image_url}" alt="${p.title}" class="w-full h-full object-cover" onerror="this.onerror=null;this.parentElement.innerHTML='<div class=\\'no-image w-full h-full\\'>📦</div>'+this.parentElement.innerHTML.replace(this.outerHTML,'');">` : '<div class="no-image w-full h-full">📦</div>'}
                         ${p.price ? `<div class="absolute top-2 right-2 bg-green-500 text-white px-2 py-0.5 rounded-full text-xs font-medium">¥${p.price}</div>` : ''}
                         ${p.weidian_url ? `<div class="absolute top-2 left-2 bg-orange-500 text-white px-2 py-0.5 rounded-full text-xs font-medium">Weidian</div>` : ''}
                         <div class="absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-2">

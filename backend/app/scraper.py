@@ -473,8 +473,8 @@ async def scrape_seller(seller: Seller, max_pages: int = 50) -> int:
             
             current_url = next_page
             
-            # Rate limiting
-            await asyncio.sleep(0.5)
+            # Minimal rate limiting for speed
+            await asyncio.sleep(0.1)
         
         # Try to fetch Weidian/Taobao prices for some products
         if all_products and seller.weidian_id:
@@ -500,23 +500,29 @@ async def scrape_seller(seller: Seller, max_pages: int = 50) -> int:
     
     return len(all_products)
 
-async def scrape_multiple_sellers(sellers: List[Seller], max_pages_per_seller: int = 50) -> Dict[str, int]:
+async def scrape_multiple_sellers(sellers: List[Seller], max_pages_per_seller: int = 50, concurrent_limit: int = 5) -> Dict[str, int]:
     """
-    Scrape multiple sellers
+    Scrape multiple sellers CONCURRENTLY for speed
     Returns: dict of seller -> product count
     """
     results = {}
+    semaphore = asyncio.Semaphore(concurrent_limit)
     
-    for seller in sellers:
-        try:
-            count = await scrape_seller(seller, max_pages_per_seller)
-            results[seller.name] = count
-        except Exception as e:
-            print(f"Error scraping {seller.name}: {e}")
-            results[seller.name] = 0
-        
-        # Rate limiting between sellers
-        await asyncio.sleep(1)
+    async def scrape_with_limit(seller: Seller) -> Tuple[str, int]:
+        async with semaphore:
+            try:
+                count = await scrape_seller(seller, max_pages_per_seller)
+                return (seller.name, count)
+            except Exception as e:
+                print(f"Error scraping {seller.name}: {e}")
+                return (seller.name, 0)
+    
+    # Run all sellers concurrently (limited by semaphore)
+    tasks = [scrape_with_limit(seller) for seller in sellers]
+    completed = await asyncio.gather(*tasks)
+    
+    for name, count in completed:
+        results[name] = count
     
     return results
 

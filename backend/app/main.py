@@ -179,27 +179,37 @@ async def start_scraping(
     }
 
 async def run_scraping(sellers: List[Seller], max_pages: int):
-    """Background scraping task"""
+    """Background scraping task - CONCURRENT for speed"""
     global scraping_status
     
     total_products = 0
+    completed_count = 0
     
-    for i, seller in enumerate(sellers):
-        try:
-            scraping_status["current_seller"] = seller.name
-            scraping_status["progress"] = i
-            
-            count = await scrape_seller(seller, max_pages)
-            total_products += count
-            scraping_status["products_found"] = total_products
-            
-        except Exception as e:
-            error_msg = f"{seller.name}: {str(e)}"
-            scraping_status["errors"].append(error_msg)
-            print(f"Error scraping {seller.name}: {e}")
-        
-        # Rate limiting
-        await asyncio.sleep(1)
+    # Use semaphore for concurrent but limited scraping
+    semaphore = asyncio.Semaphore(5)  # 5 concurrent scrapers
+    
+    async def scrape_one(seller: Seller) -> int:
+        nonlocal completed_count, total_products
+        async with semaphore:
+            try:
+                scraping_status["current_seller"] = seller.name
+                count = await scrape_seller(seller, max_pages)
+                total_products += count
+                completed_count += 1
+                scraping_status["progress"] = completed_count
+                scraping_status["products_found"] = total_products
+                return count
+            except Exception as e:
+                error_msg = f"{seller.name}: {str(e)}"
+                scraping_status["errors"].append(error_msg)
+                print(f"Error scraping {seller.name}: {e}")
+                completed_count += 1
+                scraping_status["progress"] = completed_count
+                return 0
+    
+    # Run all sellers concurrently
+    tasks = [scrape_one(seller) for seller in sellers]
+    await asyncio.gather(*tasks)
     
     # Done
     scraping_status["is_running"] = False
