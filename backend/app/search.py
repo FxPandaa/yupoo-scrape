@@ -184,6 +184,8 @@ def _search_typesense(
             filters.append(f"price:>={min_price}")
         if max_price is not None:
             filters.append(f"price:<={max_price}")
+        if has_links:
+            filters.append("(weidian_url:!='' || taobao_url:!='' || purchase_url:!='')")
         
         filter_by = " && ".join(filters) if filters else ""
         
@@ -225,7 +227,7 @@ def _search_typesense(
         
     except Exception as e:
         print(f"Typesense search error: {e}, falling back to SQLite")
-        return _search_sqlite(query, seller, category, brand, min_price, max_price, page, per_page)
+        return _search_sqlite(query, seller, category, brand, min_price, max_price, has_links, page, per_page)
 
 def _search_sqlite(
     query: str = "",

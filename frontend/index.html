@@ -15,6 +15,8 @@
         @keyframes shimmer { 0% { background-position: -200% 0; } 100% { background-position: 200% 0; } }
         ::-webkit-scrollbar { width: 8px; } ::-webkit-scrollbar-track { background: #1a1a1a; } ::-webkit-scrollbar-thumb { background: #333; border-radius: 4px; }
         .no-image { display: flex; align-items: center; justify-content: center; color: #555; font-size: 3rem; }
+        .tab-active { border-color: #f97316; color: white; }
+        .tab-inactive { border-color: transparent; color: #6b7280; }
     </style>
 </head>
 <body class="min-h-screen">
@@ -50,6 +52,16 @@
                     </div>
                 </div>
                 
+                <!-- Tabs -->
+                <div class="flex gap-6 mt-4 border-b border-gray-800">
+                    <button id="tab-products" class="tab-active pb-3 px-1 text-sm font-medium border-b-2 transition-colors">
+                        📦 Products
+                    </button>
+                    <button id="tab-discovered" class="tab-inactive pb-3 px-1 text-sm font-medium border-b-2 transition-colors hover:text-gray-300">
+                        🔍 Discovered Sellers <span id="discovered-count" class="ml-1 px-1.5 py-0.5 bg-purple-600 rounded-full text-xs">0</span>
+                    </button>
+                </div>
+                
                 <!-- Scraping progress -->
                 <div id="scrape-progress" class="hidden mt-4 bg-[#1a1a1a] rounded-lg p-4">
                     <div class="flex items-center justify-between mb-2">
@@ -68,7 +80,7 @@
             <div class="flex gap-6">
                 <!-- Filters sidebar -->
                 <aside id="filters-sidebar" class="hidden w-64 flex-shrink-0">
-                    <div class="bg-[#111] rounded-xl border border-gray-800 p-4 sticky top-24">
+                    <div class="bg-[#111] rounded-xl border border-gray-800 p-4 sticky top-36">
                         <div class="flex items-center justify-between mb-4">
                             <h2 class="font-semibold text-white">Filters</h2>
                             <button id="clear-filters" class="text-sm text-orange-500 hover:text-orange-400">Clear all</button>
@@ -95,7 +107,7 @@
                             </select>
                         </div>
                         
-                        <div class="pb-4 mb-4">
+                        <div class="border-b border-gray-800 pb-4 mb-4">
                             <label class="block text-sm font-medium text-gray-400 mb-2">Price (¥)</label>
                             <div class="flex gap-2">
                                 <input type="number" id="min-price" placeholder="Min" class="w-1/2 bg-[#1a1a1a] border border-gray-700 rounded-lg px-3 py-2 text-white text-sm">
@@ -103,7 +115,7 @@
                             </div>
                         </div>
                         
-                        <!-- NEW: Has Purchase Links Filter -->
+                        <!-- Has Purchase Links Filter -->
                         <div class="border-b border-gray-800 pb-4 mb-4">
                             <label class="flex items-center gap-2 cursor-pointer">
                                 <input type="checkbox" id="has-links-filter" class="w-4 h-4 rounded bg-[#1a1a1a] border-gray-700 text-orange-500 focus:ring-orange-500">
@@ -115,49 +127,72 @@
                         
                         <button id="apply-filters" class="w-full bg-orange-500 hover:bg-orange-400 text-white py-2 rounded-lg font-medium">Apply Filters</button>
                         
-                        <!-- NEW: Discover Sellers Button -->
+                        <!-- Discover Sellers Button -->
                         <div class="mt-4 pt-4 border-t border-gray-800">
                             <button id="discover-btn" class="w-full flex items-center justify-center gap-2 bg-purple-600 hover:bg-purple-500 text-white py-2 rounded-lg font-medium text-sm">
                                 <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"></path></svg>
-                                Discover New Sellers
+                                <span id="discover-btn-text">Discover from Reddit</span>
                             </button>
-                            <p class="text-xs text-gray-600 mt-1 text-center">Find sellers from Reddit</p>
+                            <p class="text-xs text-gray-600 mt-1 text-center">Find new sellers from Reddit</p>
                         </div>
                     </div>
                 </aside>
 
                 <!-- Main content -->
                 <main class="flex-1">
-                    <div class="flex items-center justify-between mb-4">
-                        <p id="results-text" class="text-gray-400">Loading...</p>
+                    <!-- Products Tab Content -->
+                    <div id="products-tab" class="tab-content">
+                        <div class="flex items-center justify-between mb-4">
+                            <p id="results-text" class="text-gray-400">Loading...</p>
+                        </div>
+
+                        <!-- Loading -->
+                        <div id="loading" class="flex items-center justify-center py-20">
+                            <svg class="w-8 h-8 text-orange-500 animate-spin" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>
+                        </div>
+
+                        <!-- Products grid -->
+                        <div id="products-grid" class="hidden grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4"></div>
+
+                        <!-- Empty state -->
+                        <div id="empty-state" class="hidden text-center py-20">
+                            <svg class="w-16 h-16 text-gray-600 mx-auto mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4"></path></svg>
+                            <h3 class="text-xl font-semibold text-white mb-2">No products found</h3>
+                            <p class="text-gray-500 mb-4">Try adjusting your search or filters</p>
+                        </div>
+
+                        <!-- Pagination -->
+                        <div id="pagination" class="hidden flex items-center justify-center gap-4 mt-8">
+                            <button id="prev-btn" class="flex items-center gap-2 px-4 py-2 bg-[#1a1a1a] border border-gray-700 rounded-lg text-white disabled:opacity-50">
+                                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7"></path></svg>
+                                Previous
+                            </button>
+                            <span id="page-info" class="text-gray-400">Page 1 of 1</span>
+                            <button id="next-btn" class="flex items-center gap-2 px-4 py-2 bg-[#1a1a1a] border border-gray-700 rounded-lg text-white disabled:opacity-50">
+                                Next
+                                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"></path></svg>
+                            </button>
+                        </div>
                     </div>
-
-                    <!-- Loading -->
-                    <div id="loading" class="flex items-center justify-center py-20">
-                        <svg class="w-8 h-8 text-orange-500 animate-spin" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>
-                    </div>
-
-                    <!-- Products grid -->
-                    <div id="products-grid" class="hidden grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4"></div>
-
-                    <!-- Empty state -->
-                    <div id="empty-state" class="hidden text-center py-20">
-                        <svg class="w-16 h-16 text-gray-600 mx-auto mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4"></path></svg>
-                        <h3 class="text-xl font-semibold text-white mb-2">No products found</h3>
-                        <p class="text-gray-500 mb-4">Try adjusting your search or filters</p>
-                    </div>
-
-                    <!-- Pagination -->
-                    <div id="pagination" class="hidden flex items-center justify-center gap-4 mt-8">
-                        <button id="prev-btn" class="flex items-center gap-2 px-4 py-2 bg-[#1a1a1a] border border-gray-700 rounded-lg text-white disabled:opacity-50">
-                            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7"></path></svg>
-                            Previous
-                        </button>
-                        <span id="page-info" class="text-gray-400">Page 1 of 1</span>
-                        <button id="next-btn" class="flex items-center gap-2 px-4 py-2 bg-[#1a1a1a] border border-gray-700 rounded-lg text-white disabled:opacity-50">
-                            Next
-                            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"></path></svg>
-                        </button>
+                    
+                    <!-- Discovered Sellers Tab Content -->
+                    <div id="discovered-tab" class="tab-content hidden">
+                        <div class="flex items-center justify-between mb-4">
+                            <p class="text-gray-400">Sellers discovered from Reddit communities</p>
+                            <button id="refresh-discovered" class="text-sm text-purple-400 hover:text-purple-300">↻ Refresh</button>
+                        </div>
+                        
+                        <div id="discovered-loading" class="hidden flex items-center justify-center py-20">
+                            <svg class="w-8 h-8 text-purple-500 animate-spin" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>
+                        </div>
+                        
+                        <div id="discovered-grid" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4"></div>
+                        
+                        <div id="discovered-empty" class="hidden text-center py-20">
+                            <svg class="w-16 h-16 text-gray-600 mx-auto mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z"></path></svg>
+                            <h3 class="text-xl font-semibold text-white mb-2">No discovered sellers yet</h3>
+                            <p class="text-gray-500 mb-4">Click "Discover from Reddit" to find new sellers</p>
+                        </div>
                     </div>
                 </main>
             </div>
@@ -169,6 +204,7 @@
         let currentPage = 1;
         let totalPages = 1;
         let isScrapingRunning = false;
+        let currentTab = 'products';
 
         // Elements
         const searchForm = document.getElementById('search-form');
@@ -181,6 +217,26 @@
         const loading = document.getElementById('loading');
         const emptyState = document.getElementById('empty-state');
         const pagination = document.getElementById('pagination');
+
+        // Tab switching
+        document.getElementById('tab-products').addEventListener('click', () => switchTab('products'));
+        document.getElementById('tab-discovered').addEventListener('click', () => switchTab('discovered'));
+        
+        function switchTab(tab) {
+            currentTab = tab;
+            
+            // Update tab styles
+            document.getElementById('tab-products').className = tab === 'products' ? 'tab-active pb-3 px-1 text-sm font-medium border-b-2 transition-colors' : 'tab-inactive pb-3 px-1 text-sm font-medium border-b-2 transition-colors hover:text-gray-300';
+            document.getElementById('tab-discovered').className = tab === 'discovered' ? 'tab-active pb-3 px-1 text-sm font-medium border-b-2 transition-colors' : 'tab-inactive pb-3 px-1 text-sm font-medium border-b-2 transition-colors hover:text-gray-300';
+            
+            // Show/hide content
+            document.getElementById('products-tab').classList.toggle('hidden', tab !== 'products');
+            document.getElementById('discovered-tab').classList.toggle('hidden', tab !== 'discovered');
+            
+            if (tab === 'discovered') {
+                fetchDiscoveredSellers();
+            }
+        }
 
         // Fetch products
         async function fetchProducts() {
@@ -212,6 +268,7 @@
                     updatePagination(data.total);
                 } else {
                     emptyState.classList.remove('hidden');
+                    document.getElementById('results-text').textContent = '0 products found';
                 }
 
                 // Update facets
@@ -235,7 +292,6 @@
                 const hasWeidian = p.weidian_url;
                 const hasTaobao = p.taobao_url;
                 const hasPurchase = p.purchase_url;
-                const hasAnyLink = hasWeidian || hasTaobao || hasPurchase;
                 
                 // Generate badges for purchase links
                 let badges = '';
@@ -272,6 +328,92 @@
                     </div>
                 </div>
             `}).join('');
+        }
+
+        // Fetch discovered sellers
+        async function fetchDiscoveredSellers() {
+            const loadingEl = document.getElementById('discovered-loading');
+            const gridEl = document.getElementById('discovered-grid');
+            const emptyEl = document.getElementById('discovered-empty');
+            
+            loadingEl.classList.remove('hidden');
+            gridEl.innerHTML = '';
+            emptyEl.classList.add('hidden');
+            
+            try {
+                const res = await fetch(`${API_BASE}/discover/sellers`);
+                const data = await res.json();
+                
+                loadingEl.classList.add('hidden');
+                
+                // Update count badge
+                document.getElementById('discovered-count').textContent = data.total || 0;
+                
+                if (data.sellers && data.sellers.length > 0) {
+                    renderDiscoveredSellers(data.sellers);
+                } else {
+                    emptyEl.classList.remove('hidden');
+                }
+            } catch (err) {
+                console.error('Discovered sellers error:', err);
+                loadingEl.classList.add('hidden');
+                emptyEl.classList.remove('hidden');
+            }
+        }
+        
+        // Render discovered sellers
+        function renderDiscoveredSellers(sellers) {
+            const gridEl = document.getElementById('discovered-grid');
+            gridEl.innerHTML = sellers.map(s => `
+                <div class="bg-[#111] border border-gray-800 rounded-xl p-4">
+                    <div class="flex items-start justify-between mb-3">
+                        <div>
+                            <h3 class="font-medium text-white">${s.yupoo_user || s.name || 'Unknown'}</h3>
+                            <p class="text-xs text-gray-500">From: ${s.source || 'Reddit'}</p>
+                        </div>
+                        <span class="px-2 py-1 rounded text-xs ${s.verified ? 'bg-green-500/20 text-green-400' : 'bg-yellow-500/20 text-yellow-400'}">
+                            ${s.verified ? '✓ Verified' : '? Unverified'}
+                        </span>
+                    </div>
+                    
+                    <div class="flex flex-wrap gap-2 mb-3">
+                        ${s.yupoo_url ? `<a href="${s.yupoo_url}" target="_blank" class="text-xs bg-blue-500/20 text-blue-400 px-2 py-1 rounded hover:bg-blue-500/30">Yupoo</a>` : ''}
+                        ${s.weidian_url ? `<a href="${s.weidian_url}" target="_blank" class="text-xs bg-orange-500/20 text-orange-400 px-2 py-1 rounded hover:bg-orange-500/30">Weidian</a>` : ''}
+                        ${s.taobao_url ? `<a href="${s.taobao_url}" target="_blank" class="text-xs bg-red-500/20 text-red-400 px-2 py-1 rounded hover:bg-red-500/30">Taobao</a>` : ''}
+                    </div>
+                    
+                    <div class="flex gap-2">
+                        ${!s.verified ? `<button onclick="verifySeller('${s.yupoo_user}')" class="flex-1 text-xs bg-purple-600 hover:bg-purple-500 text-white px-3 py-1.5 rounded">Verify</button>` : ''}
+                        ${!s.added_to_main ? `<button onclick="addToMain('${s.yupoo_user}')" class="flex-1 text-xs bg-green-600 hover:bg-green-500 text-white px-3 py-1.5 rounded">Add to Sellers</button>` : '<span class="flex-1 text-xs text-center text-gray-500 py-1.5">Already added</span>'}
+                    </div>
+                    
+                    <p class="text-xs text-gray-600 mt-2">Discovered: ${s.discovered_at ? new Date(s.discovered_at * 1000).toLocaleDateString() : 'Unknown'}</p>
+                </div>
+            `).join('');
+        }
+        
+        // Verify a discovered seller
+        async function verifySeller(yupooUser) {
+            try {
+                const res = await fetch(`${API_BASE}/discover/verify/${yupooUser}`, { method: 'POST' });
+                const data = await res.json();
+                
+                if (data.verified) {
+                    alert(`✅ Seller ${yupooUser} is verified and accessible!`);
+                } else {
+                    alert(`❌ Seller ${yupooUser} could not be verified. The Yupoo may be offline or private.`);
+                }
+                
+                fetchDiscoveredSellers();
+            } catch (err) {
+                console.error('Verify error:', err);
+                alert('Failed to verify seller');
+            }
+        }
+        
+        // Add seller to main list
+        async function addToMain(yupooUser) {
+            alert(`Adding ${yupooUser} to main sellers list is not yet implemented.\nYou can manually add them to backend/app/sellers.py`);
         }
 
         // Update facets
@@ -311,6 +453,13 @@
                 const res = await fetch(`${API_BASE}/stats`);
                 const data = await res.json();
                 document.getElementById('stats-text').textContent = `${data.total_products.toLocaleString()} products from ${data.total_sellers} sellers`;
+                
+                // Also fetch discovered count
+                try {
+                    const discRes = await fetch(`${API_BASE}/discover/sellers?limit=1`);
+                    const discData = await discRes.json();
+                    document.getElementById('discovered-count').textContent = discData.total || 0;
+                } catch (e) {}
             } catch (err) {
                 console.error('Stats error:', err);
             }
@@ -340,7 +489,7 @@
                     document.getElementById('scrape-icon').classList.remove('animate-spin');
                     scrapeBtn.disabled = false;
                     fetchStats();
-                    fetchProducts();
+                    if (currentTab === 'products') fetchProducts();
                 }
             } catch (err) {
                 console.error('Scrape status error:', err);
@@ -354,6 +503,53 @@
                 checkScrapeStatus();
             } catch (err) {
                 console.error('Start scrape error:', err);
+            }
+        }
+        
+        // Discover sellers from Reddit
+        async function discoverFromReddit() {
+            const btn = document.getElementById('discover-btn');
+            const btnText = document.getElementById('discover-btn-text');
+            const originalText = btnText.textContent;
+            
+            btnText.textContent = 'Searching Reddit...';
+            btn.disabled = true;
+            
+            try {
+                const res = await fetch(`${API_BASE}/discover/reddit`, { method: 'POST' });
+                const data = await res.json();
+                
+                if (data.status === 'started') {
+                    alert('Reddit discovery started in background!\n\nSwitch to the "Discovered Sellers" tab to see results.');
+                    // Poll for status
+                    checkDiscoveryStatus();
+                } else if (data.status === 'already_running') {
+                    alert('Discovery is already running. Please wait...');
+                } else {
+                    alert('Response: ' + JSON.stringify(data));
+                }
+            } catch (err) {
+                console.error('Discover error:', err);
+                alert('Failed to start discovery: ' + err.message);
+            } finally {
+                btnText.textContent = originalText;
+                btn.disabled = false;
+            }
+        }
+        
+        // Check discovery status
+        async function checkDiscoveryStatus() {
+            try {
+                const res = await fetch(`${API_BASE}/discover/status`);
+                const data = await res.json();
+                
+                if (data.is_running) {
+                    setTimeout(checkDiscoveryStatus, 3000);
+                } else {
+                    fetchDiscoveredSellers();
+                }
+            } catch (err) {
+                console.error('Discovery status error:', err);
             }
         }
 
@@ -375,31 +571,8 @@
         });
         document.getElementById('prev-btn').addEventListener('click', () => { if (currentPage > 1) { currentPage--; fetchProducts(); } });
         document.getElementById('next-btn').addEventListener('click', () => { if (currentPage < totalPages) { currentPage++; fetchProducts(); } });
-        
-        // Discover sellers from Reddit
-        document.getElementById('discover-btn').addEventListener('click', async () => {
-            const btn = document.getElementById('discover-btn');
-            const originalText = btn.innerHTML;
-            btn.innerHTML = '<svg class="animate-spin w-4 h-4" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg> Searching...';
-            btn.disabled = true;
-            
-            try {
-                const res = await fetch(`${API_BASE}/discover-sellers`, { method: 'POST' });
-                const data = await res.json();
-                
-                if (data.status === 'success') {
-                    alert(`Found ${data.new_sellers} new sellers from Reddit!\n\nTotal discovered: ${data.total_discovered}\nSubreddits: ${data.subreddits.join(', ')}`);
-                } else {
-                    alert('Error discovering sellers: ' + (data.message || 'Unknown error'));
-                }
-            } catch (err) {
-                console.error('Discover error:', err);
-                alert('Failed to discover sellers. Check console for details.');
-            } finally {
-                btn.innerHTML = originalText;
-                btn.disabled = false;
-            }
-        });
+        document.getElementById('discover-btn').addEventListener('click', discoverFromReddit);
+        document.getElementById('refresh-discovered').addEventListener('click', fetchDiscoveredSellers);
 
         // Initial load
         fetchStats();
