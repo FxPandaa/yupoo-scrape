@@ -108,6 +108,16 @@
                             </div>
                         </div>
                         
+                        <!-- Source Filter -->
+                        <div class="border-b border-gray-800 pb-4 mb-4">
+                            <label class="block text-sm font-medium text-gray-400 mb-2">Source</label>
+                            <select id="source-filter" class="w-full bg-[#1a1a1a] border border-gray-700 rounded-lg px-3 py-2 text-white text-sm">
+                                <option value="">All sources</option>
+                                <option value="reddit">🔴 Reddit discovered</option>
+                                <option value="wiki">📋 FashionReps Wiki</option>
+                            </select>
+                        </div>
+                        
                         <!-- Has Purchase Links Filter -->
                         <div class="border-b border-gray-800 pb-4 mb-4">
                             <label class="flex items-center gap-2 cursor-pointer">
@@ -305,6 +315,7 @@
             if (document.getElementById('seller-filter').value) params.set('seller', document.getElementById('seller-filter').value);
             if (document.getElementById('category-filter').value) params.set('category', document.getElementById('category-filter').value);
             if (document.getElementById('brand-filter').value) params.set('brand', document.getElementById('brand-filter').value);
+            if (document.getElementById('source-filter').value) params.set('source', document.getElementById('source-filter').value);
             if (document.getElementById('min-price').value) params.set('min_price', document.getElementById('min-price').value);
             if (document.getElementById('max-price').value) params.set('max_price', document.getElementById('max-price').value);
             if (document.getElementById('has-links-filter').checked) params.set('has_links', 'true');

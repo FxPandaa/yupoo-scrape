@@ -535,10 +535,11 @@ async def scrape_yupoo_page(url: str, seller_name: str) -> Tuple[List[Dict], Opt
     # Use Playwright version for proper JS rendering
     return await scrape_yupoo_page_playwright(url, seller_name)
 
-async def scrape_seller(seller: Seller, max_pages: int = 50) -> int:
+async def scrape_seller(seller: Seller, max_pages: int = 50, source: str = "wiki") -> int:
     """
     Scrape all products from a seller using Playwright for JS rendering
     Returns: number of products found
+    source: 'wiki' for FashionReps Wiki, 'reddit/SubName' for Reddit discovered
     """
     print(f"\n{'='*60}")
     print(f"Scraping: {seller.name} ({seller.yupoo_user})")
@@ -566,6 +567,9 @@ async def scrape_seller(seller: Seller, max_pages: int = 50) -> int:
             
             if products:
                 print(f"    Found {len(products)} products")
+                # Add source to each product
+                for product in products:
+                    product['source'] = source
                 all_products.extend(products)
             else:
                 print(f"    No products found")

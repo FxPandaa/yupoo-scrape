@@ -46,12 +46,14 @@ def init_db():
                 category TEXT,
                 detected_category TEXT,
                 brand TEXT,
+                source TEXT,
                 purchase_url TEXT,
                 purchase_platform TEXT,
                 weidian_url TEXT,
                 weidian_price REAL,
                 taobao_url TEXT,
                 taobao_price REAL,
+                url_1688 TEXT,
                 scraped_at INTEGER DEFAULT (strftime('%s', 'now')),
                 updated_at INTEGER DEFAULT (strftime('%s', 'now'))
             )
@@ -154,6 +156,17 @@ def init_db():
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_products_scraped ON products(scraped_at)")
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_products_weidian ON products(weidian_url)")
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_products_taobao ON products(taobao_url)")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_products_source ON products(source)")
+        
+        # Migrations for existing databases
+        try:
+            cursor.execute("ALTER TABLE products ADD COLUMN source TEXT")
+        except sqlite3.OperationalError:
+            pass  # Column already exists
+        try:
+            cursor.execute("ALTER TABLE products ADD COLUMN url_1688 TEXT")
+        except sqlite3.OperationalError:
+            pass  # Column already exists
         
         # Discovered sellers table (from Reddit scraping)
         cursor.execute("""
@@ -185,10 +198,10 @@ def save_product(product: Dict[str, Any]) -> bool:
         cursor.execute("""
             INSERT OR REPLACE INTO products (
                 id, seller, title, url, image_url, price, price_currency,
-                category, detected_category, brand, purchase_url, purchase_platform,
-                weidian_url, weidian_price, taobao_url, taobao_price,
+                category, detected_category, brand, source, purchase_url, purchase_platform,
+                weidian_url, weidian_price, taobao_url, taobao_price, url_1688,
                 scraped_at, updated_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """, (
             product.get("id"),
             product.get("seller"),
@@ -200,12 +213,14 @@ def save_product(product: Dict[str, Any]) -> bool:
             product.get("category"),
             product.get("detected_category"),
             product.get("brand"),
+            product.get("source"),
             product.get("purchase_url"),
             product.get("purchase_platform"),
             product.get("weidian_url"),
             product.get("weidian_price"),
             product.get("taobao_url"),
             product.get("taobao_price"),
+            product.get("url_1688"),
             product.get("scraped_at", int(time.time())),
             int(time.time())
         ))
@@ -224,10 +239,10 @@ def save_products_batch(products: List[Dict[str, Any]]) -> int:
                 cursor.execute("""
                     INSERT OR REPLACE INTO products (
                         id, seller, title, url, image_url, price, price_currency,
-                        category, detected_category, brand, purchase_url, purchase_platform,
-                        weidian_url, weidian_price, taobao_url, taobao_price,
+                        category, detected_category, brand, source, purchase_url, purchase_platform,
+                        weidian_url, weidian_price, taobao_url, taobao_price, url_1688,
                         scraped_at, updated_at
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """, (
                     product.get("id"),
                     product.get("seller"),
@@ -239,12 +254,14 @@ def save_products_batch(products: List[Dict[str, Any]]) -> int:
                     product.get("category"),
                     product.get("detected_category"),
                     product.get("brand"),
+                    product.get("source"),
                     product.get("purchase_url"),
                     product.get("purchase_platform"),
                     product.get("weidian_url"),
                     product.get("weidian_price"),
                     product.get("taobao_url"),
                     product.get("taobao_price"),
+                    product.get("url_1688"),
                     product.get("scraped_at", int(time.time())),
                     int(time.time())
                 ))
@@ -260,8 +277,10 @@ def search_products(
     seller: str = None,
     category: str = None,
     brand: str = None,
+    source: str = None,
     min_price: float = None,
     max_price: float = None,
+    has_links: bool = False,
     limit: int = 100,
     offset: int = 0
 ) -> List[Dict[str, Any]]:
@@ -289,6 +308,10 @@ def search_products(
             conditions.append("brand LIKE ?")
             params.append(f"%{brand}%")
         
+        if source:
+            conditions.append("source LIKE ?")
+            params.append(f"{source}%")
+        
         if min_price is not None:
             conditions.append("price >= ?")
             params.append(min_price)
@@ -296,6 +319,9 @@ def search_products(
         if max_price is not None:
             conditions.append("price <= ?")
             params.append(max_price)
+        
+        if has_links:
+            conditions.append("(weidian_url IS NOT NULL AND weidian_url != '' OR taobao_url IS NOT NULL AND taobao_url != '' OR url_1688 IS NOT NULL AND url_1688 != '' OR purchase_url IS NOT NULL AND purchase_url != '')")
         
         where_clause = " AND ".join(conditions) if conditions else "1=1"
         

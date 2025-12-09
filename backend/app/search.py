@@ -49,12 +49,15 @@ def init_typesense():
             {"name": "category", "type": "string", "facet": True, "optional": True},
             {"name": "detected_category", "type": "string", "facet": True, "optional": True},
             {"name": "brand", "type": "string", "facet": True, "optional": True},
+            {"name": "source", "type": "string", "facet": True, "optional": True},
+            {"name": "has_buy_link", "type": "bool", "facet": True},
             {"name": "purchase_url", "type": "string", "optional": True},
-            {"name": "purchase_platform", "type": "string", "optional": True},
+            {"name": "purchase_platform", "type": "string", "facet": True, "optional": True},
             {"name": "weidian_url", "type": "string", "optional": True},
             {"name": "weidian_price", "type": "float", "optional": True},
             {"name": "taobao_url", "type": "string", "optional": True},
             {"name": "taobao_price", "type": "float", "optional": True},
+            {"name": "url_1688", "type": "string", "optional": True},
             {"name": "scraped_at", "type": "int64"}
         ],
         "default_sorting_field": "scraped_at"
@@ -107,6 +110,8 @@ def index_products(products: List[Dict[str, Any]]) -> int:
                 doc["detected_category"] = str(product["detected_category"])
             if product.get("brand"):
                 doc["brand"] = str(product["brand"])
+            if product.get("source"):
+                doc["source"] = str(product["source"])
             if product.get("purchase_url"):
                 doc["purchase_url"] = str(product["purchase_url"])
             if product.get("purchase_platform"):
@@ -119,6 +124,16 @@ def index_products(products: List[Dict[str, Any]]) -> int:
                 doc["taobao_url"] = str(product["taobao_url"])
             if product.get("taobao_price"):
                 doc["taobao_price"] = float(product["taobao_price"])
+            if product.get("url_1688"):
+                doc["url_1688"] = str(product["url_1688"])
+            
+            # Boolean flag for easy filtering
+            doc["has_buy_link"] = bool(
+                product.get("weidian_url") or 
+                product.get("taobao_url") or 
+                product.get("url_1688") or
+                product.get("purchase_url")
+            )
             
             typesense_client.collections[COLLECTION_NAME].documents.upsert(doc)
             indexed += 1
@@ -133,6 +148,7 @@ def search_typesense(
     seller: str = None,
     category: str = None,
     brand: str = None,
+    source: str = None,
     min_price: float = None,
     max_price: float = None,
     has_links: bool = False,
@@ -153,16 +169,17 @@ def search_typesense(
             pass
     
     if use_typesense:
-        return _search_typesense(query, seller, category, brand, min_price, max_price, has_links, page, per_page)
+        return _search_typesense(query, seller, category, brand, source, min_price, max_price, has_links, page, per_page)
     else:
         # Fallback to SQLite
-        return _search_sqlite(query, seller, category, brand, min_price, max_price, has_links, page, per_page)
+        return _search_sqlite(query, seller, category, brand, source, min_price, max_price, has_links, page, per_page)
 
 def _search_typesense(
     query: str = "",
     seller: str = None,
     category: str = None,
     brand: str = None,
+    source: str = None,
     min_price: float = None,
     max_price: float = None,
     has_links: bool = False,
@@ -180,12 +197,15 @@ def _search_typesense(
             filters.append(f"(category:={category} || detected_category:={category})")
         if brand:
             filters.append(f"brand:={brand}")
+        if source:
+            # Allow partial source matching like 'reddit' for 'reddit/FashionReps'
+            filters.append(f"source:={source}*")
         if min_price is not None:
             filters.append(f"price:>={min_price}")
         if max_price is not None:
             filters.append(f"price:<={max_price}")
         if has_links:
-            filters.append("(weidian_url:!='' || taobao_url:!='' || purchase_url:!='')")
+            filters.append("has_buy_link:=true")
         
         filter_by = " && ".join(filters) if filters else ""
         
@@ -227,13 +247,14 @@ def _search_typesense(
         
     except Exception as e:
         print(f"Typesense search error: {e}, falling back to SQLite")
-        return _search_sqlite(query, seller, category, brand, min_price, max_price, has_links, page, per_page)
+        return _search_sqlite(query, seller, category, brand, source, min_price, max_price, has_links, page, per_page)
 
 def _search_sqlite(
     query: str = "",
     seller: str = None,
     category: str = None,
     brand: str = None,
+    source: str = None,
     min_price: float = None,
     max_price: float = None,
     has_links: bool = False,

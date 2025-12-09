@@ -71,7 +71,7 @@ def get_all_known_yupoo_users() -> Set[str]:
 async def discover_sellers_from_reddit() -> List[Dict]:
     """
     Discover new sellers from Reddit without using the Reddit API
-    Uses public JSON endpoints
+    Uses public JSON endpoints - parallelized for speed
     """
     global automation_state
     
@@ -81,13 +81,16 @@ async def discover_sellers_from_reddit() -> List[Dict]:
     automation_state["discovery"]["is_running"] = True
     automation_state["discovery"]["subreddits_checked"] = 0
     automation_state["discovery"]["total_subreddits"] = len(subreddits)
+    automation_state["discovery"]["sellers_found"] = 0
     
     known_users = get_all_known_yupoo_users()
+    found_lock = asyncio.Lock()
     
     import httpx
     
     headers = {
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0",
+        "Accept": "application/json",
     }
     
     # Yupoo URL patterns
@@ -104,61 +107,73 @@ async def discover_sellers_from_reddit() -> List[Dict]:
         r'https?://(?:www\.)?weidian\.com/\?userid=(\d+)',
     ]
     
-    async with httpx.AsyncClient(timeout=30.0) as client:
-        for subreddit in subreddits:
-            automation_state["discovery"]["current_subreddit"] = subreddit
+    async def fetch_subreddit(client: httpx.AsyncClient, subreddit: str) -> List[Dict]:
+        """Fetch a single subreddit's posts"""
+        nonlocal discovered, known_users
+        local_discovered = []
+        
+        automation_state["discovery"]["current_subreddit"] = subreddit
+        
+        try:
+            # Fetch top posts from last month
+            url = f"https://www.reddit.com/r/{subreddit}/top.json?t=month&limit=100"
+            response = await client.get(url, headers=headers)
             
-            try:
-                # Fetch top posts from last month
-                url = f"https://www.reddit.com/r/{subreddit}/top.json?t=month&limit=100"
-                response = await client.get(url, headers=headers)
+            if response.status_code == 200:
+                data = response.json()
+                posts = data.get("data", {}).get("children", [])
                 
-                if response.status_code == 200:
-                    data = response.json()
-                    posts = data.get("data", {}).get("children", [])
+                for post in posts:
+                    post_data = post.get("data", {})
+                    title = post_data.get("title", "")
+                    selftext = post_data.get("selftext", "")
+                    url_field = post_data.get("url", "")
                     
-                    for post in posts:
-                        post_data = post.get("data", {})
-                        title = post_data.get("title", "")
-                        selftext = post_data.get("selftext", "")
-                        url_field = post_data.get("url", "")
-                        
-                        combined_text = f"{title} {selftext} {url_field}"
-                        
-                        # Extract Yupoo users
-                        for pattern in yupoo_patterns:
-                            matches = re.findall(pattern, combined_text, re.IGNORECASE)
-                            for match in matches:
-                                yupoo_user = match.lower().strip()
-                                if yupoo_user and len(yupoo_user) > 2 and yupoo_user not in known_users:
-                                    # New seller found!
-                                    seller_dict = {
-                                        "yupoo_user": yupoo_user,
-                                        "yupoo_url": f"https://{yupoo_user}.x.yupoo.com",
-                                        "source": f"reddit/{subreddit}",
-                                        "discovered_at": int(time.time()),
-                                        "verified": False,
-                                        "added_to_main": False,
-                                    }
-                                    
-                                    # Check for Weidian links in same post
-                                    for wp in weidian_patterns:
-                                        wm = re.search(wp, combined_text)
-                                        if wm:
-                                            seller_dict["weidian_id"] = wm.group(1)
-                                            break
-                                    
-                                    discovered.append(seller_dict)
-                                    known_users.add(yupoo_user)
-                                    automation_state["discovery"]["sellers_found"] += 1
+                    combined_text = f"{title} {selftext} {url_field}"
                     
-                    # Small delay to be nice to Reddit
-                    await asyncio.sleep(1)
-                    
-            except Exception as e:
-                print(f"Error fetching r/{subreddit}: {e}")
-            
-            automation_state["discovery"]["subreddits_checked"] += 1
+                    # Extract Yupoo users
+                    for pattern in yupoo_patterns:
+                        matches = re.findall(pattern, combined_text, re.IGNORECASE)
+                        for match in matches:
+                            yupoo_user = match.lower().strip()
+                            if yupoo_user and len(yupoo_user) > 2:
+                                async with found_lock:
+                                    if yupoo_user not in known_users:
+                                        # New seller found!
+                                        seller_dict = {
+                                            "yupoo_user": yupoo_user,
+                                            "yupoo_url": f"https://{yupoo_user}.x.yupoo.com",
+                                            "source": f"reddit/{subreddit}",
+                                            "discovered_at": int(time.time()),
+                                            "verified": False,
+                                            "added_to_main": False,
+                                        }
+                                        
+                                        # Check for Weidian links in same post
+                                        for wp in weidian_patterns:
+                                            wm = re.search(wp, combined_text)
+                                            if wm:
+                                                seller_dict["weidian_id"] = wm.group(1)
+                                                break
+                                        
+                                        local_discovered.append(seller_dict)
+                                        known_users.add(yupoo_user)
+                                        automation_state["discovery"]["sellers_found"] += 1
+                
+        except Exception as e:
+            print(f"Error fetching r/{subreddit}: {e}")
+        
+        automation_state["discovery"]["subreddits_checked"] += 1
+        return local_discovered
+    
+    async with httpx.AsyncClient(timeout=30.0) as client:
+        # Run all subreddits in parallel
+        tasks = [fetch_subreddit(client, sub) for sub in subreddits]
+        results = await asyncio.gather(*tasks, return_exceptions=True)
+        
+        for result in results:
+            if isinstance(result, list):
+                discovered.extend(result)
     
     # Save all discovered sellers
     new_count = 0
@@ -266,9 +281,10 @@ async def scrape_album_for_buy_links(album_url: str) -> Dict[str, Any]:
     
     return result
 
-async def scrape_seller_with_links(seller: Seller, max_pages: int = 20, check_links: bool = True) -> int:
+async def scrape_seller_with_links(seller: Seller, max_pages: int = 20, check_links: bool = True, source: str = "wiki") -> int:
     """
     Scrape a seller and optionally check album pages for buy links
+    source: 'wiki' for FashionReps Wiki, 'reddit/SubName' for Reddit discovered
     """
     global automation_state
     
@@ -277,8 +293,8 @@ async def scrape_seller_with_links(seller: Seller, max_pages: int = 20, check_li
     automation_state["scraping"]["current_seller"] = seller.name
     
     try:
-        # First do normal scraping
-        count = await scrape_seller(seller, max_pages)
+        # First do normal scraping with source
+        count = await scrape_seller(seller, max_pages, source=source)
         automation_state["scraping"]["products_found"] += count
         
         # If check_links is enabled, go back and check some albums for buy links
@@ -355,14 +371,20 @@ async def run_full_automation(
             new_sellers = await add_discovered_to_scrape_queue()
             print(f"Added {len(new_sellers)} new sellers to scrape queue")
         
-        # Step 3: Build scrape list
+        # Step 3: Build scrape list with sources
         sellers_to_scrape = []
+        seller_sources = {}  # Track source for each seller
         
         if scrape_existing:
-            sellers_to_scrape.extend(SELLERS)
+            for s in SELLERS:
+                sellers_to_scrape.append(s)
+                seller_sources[s.yupoo_user] = "wiki"
         
         if scrape_discovered:
-            sellers_to_scrape.extend(dynamic_sellers)
+            for s in dynamic_sellers:
+                sellers_to_scrape.append(s)
+                # Get source from discovered_sellers if available
+                seller_sources[s.yupoo_user] = "reddit"
         
         automation_state["scraping"]["total_sellers"] = len(sellers_to_scrape)
         automation_state["scraping"]["is_running"] = True
@@ -372,7 +394,8 @@ async def run_full_automation(
         
         async def scrape_one(seller: Seller):
             async with semaphore:
-                count = await scrape_seller_with_links(seller, max_pages_per_seller, check_buy_links)
+                source = seller_sources.get(seller.yupoo_user, "wiki")
+                count = await scrape_seller_with_links(seller, max_pages_per_seller, check_buy_links, source=source)
                 automation_state["scraping"]["sellers_done"] += 1
                 return count
         
