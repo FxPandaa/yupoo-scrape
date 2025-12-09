@@ -255,73 +255,124 @@ async def scrape_yupoo_page(client: httpx.AsyncClient, url: str, seller_name: st
         html = response.text
         soup = BeautifulSoup(html, 'html.parser')
         
-        # Find album container - multiple possible selectors
-        container = (
-            soup.find('div', class_='showindex__children') or
-            soup.find('div', class_='categories__children') or
-            soup.find('div', class_='album__main')
-        )
+        # DEBUG: Print page structure
+        print(f"    Page length: {len(html)} chars")
         
-        if not container:
-            # Try finding albums directly
-            albums = soup.find_all('a', class_='album__main')
-            if not albums:
-                albums = soup.find_all('div', class_='album__main')
-            if not albums:
-                # Last resort - find any album links
-                albums = soup.find_all('a', href=re.compile(r'/albums/\d+'))
-        else:
-            albums = container.find_all('a', class_='album__main')
-            if not albums:
+        # Method 1: Find all album links with album__main class
+        albums = soup.find_all('a', class_='album__main')
+        
+        # Method 2: Find showindex__children container
+        if not albums:
+            container = soup.find('div', class_='showindex__children')
+            if container:
                 albums = container.find_all('a', href=True)
+        
+        # Method 3: Find categories__children container  
+        if not albums:
+            container = soup.find('div', class_='categories__children')
+            if container:
+                albums = container.find_all('a', href=True)
+        
+        # Method 4: Find any links to albums
+        if not albums:
+            albums = soup.find_all('a', href=re.compile(r'/albums/\d+'))
+        
+        # Method 5: Find album items by class patterns
+        if not albums:
+            albums = soup.find_all(['a', 'div'], class_=re.compile(r'album|showindex__item|categories__item'))
+        
+        print(f"    Found {len(albums)} album elements")
         
         for album in albums:
             try:
-                # Get URL
+                # Get URL - handle both <a> tags and containers with <a> inside
+                href = None
                 if album.name == 'a':
                     href = album.get('href', '')
                 else:
                     link = album.find('a', href=True)
-                    href = link.get('href', '') if link else ''
+                    if link:
+                        href = link.get('href', '')
                 
                 if not href or '/albums/' not in href:
                     continue
                 
                 full_url = urljoin(url, href)
                 
-                # Get title
-                title_elem = album.find(class_='album__title') or album.find('span', class_='text')
-                title = title_elem.get_text(strip=True) if title_elem else "Unknown"
+                # Get title from multiple sources
+                title = None
                 
-                if not title or title == "Unknown":
-                    # Try getting from alt or title attribute
-                    title = album.get('title', '') or album.get('alt', '') or "Unknown"
+                # Try specific Yupoo title classes
+                for title_class in ['album__title', 'showindex__title', 'text', 'title']:
+                    title_elem = album.find(class_=title_class)
+                    if title_elem:
+                        title = title_elem.get_text(strip=True)
+                        break
                 
-                # Get image - Yupoo uses multiple lazy-loading attributes
-                img = album.find('img')
+                # Try span with text
+                if not title:
+                    span = album.find('span')
+                    if span:
+                        title = span.get_text(strip=True)
+                
+                # Try title/alt attributes
+                if not title:
+                    title = album.get('title', '') or album.get('alt', '')
+                
+                # Try img alt
+                if not title:
+                    img = album.find('img')
+                    if img:
+                        title = img.get('alt', '') or img.get('title', '')
+                
+                if not title:
+                    title = "Unknown"
+                
+                # Get image URL - check all possible attributes
                 image_url = None
+                img = album.find('img')
+                
                 if img:
-                    # Try various Yupoo image attributes (priority order)
-                    image_url = (
-                        img.get('data-origin-src') or  # High-res original
-                        img.get('data-src') or         # Lazy load src
-                        img.get('data-original') or    # Alternative lazy load
-                        img.get('src')                 # Fallback to regular src
-                    )
+                    # Yupoo image attributes in priority order
+                    for attr in ['data-origin-src', 'data-src', 'data-original', 'data-lazy', 'src']:
+                        image_url = img.get(attr)
+                        if image_url and image_url != '' and 'data:image' not in image_url:
+                            break
                     
-                    # Fix relative URLs
-                    if image_url:
-                        if image_url.startswith('//'):
-                            image_url = 'https:' + image_url
-                        elif not image_url.startswith('http'):
-                            image_url = urljoin(url, image_url)
-                        
-                        # Replace thumbnail size with larger size for better quality
-                        # Yupoo uses _240x240 or similar for thumbnails
-                        if '_240x240' in image_url:
-                            image_url = image_url.replace('_240x240', '_800x0x1')
-                        elif '_160x160' in image_url:
-                            image_url = image_url.replace('_160x160', '_800x0x1')
+                    # Also check style attribute for background image
+                    if not image_url:
+                        style = img.get('style', '')
+                        bg_match = re.search(r'url\(["\']?([^"\']+)["\']?\)', style)
+                        if bg_match:
+                            image_url = bg_match.group(1)
+                
+                # Check for background-image in album element itself
+                if not image_url:
+                    style = album.get('style', '')
+                    bg_match = re.search(r'url\(["\']?([^"\']+)["\']?\)', style)
+                    if bg_match:
+                        image_url = bg_match.group(1)
+                
+                # Check for image in nested div
+                if not image_url:
+                    img_div = album.find('div', class_=re.compile(r'image|thumb|cover|photo'))
+                    if img_div:
+                        nested_img = img_div.find('img')
+                        if nested_img:
+                            for attr in ['data-origin-src', 'data-src', 'src']:
+                                image_url = nested_img.get(attr)
+                                if image_url:
+                                    break
+                
+                # Fix URL format
+                if image_url:
+                    if image_url.startswith('//'):
+                        image_url = 'https:' + image_url
+                    elif not image_url.startswith('http'):
+                        image_url = urljoin(url, image_url)
+                    
+                    # Upgrade thumbnail to larger size
+                    image_url = re.sub(r'_\d+x\d+', '_800x0x1', image_url)
                 
                 # Extract price from title
                 price = extract_price(title)
@@ -348,6 +399,10 @@ async def scrape_yupoo_page(client: httpx.AsyncClient, url: str, seller_name: st
                     "detected_category": category,
                     "scraped_at": int(time.time())
                 }
+                
+                # Log first few products for debugging
+                if len(products) < 3:
+                    print(f"      Product: {title[:50]}... | Image: {image_url[:50] if image_url else 'None'}...")
                 
                 products.append(product)
                 
